@@ -1,0 +1,35 @@
+_format_version: "2.1"
+_transform: true
+services:
+  - name: auth
+    url: http://auth:9999/
+    routes:
+      - name: auth
+        paths: ["/auth/v1/"]
+    plugins:
+      - name: cors
+  - name: rest
+    url: http://rest:3000/
+    routes:
+      - name: rest
+        paths: ["/rest/v1/"]
+    plugins:
+      - name: cors
+  - name: realtime
+    url: http://realtime-dev.supabase-realtime:4000/socket
+    routes:
+      - name: realtime
+        paths: ["/realtime/v1/"]
+    plugins:
+      - name: cors
+      - name: request-transformer
+        config:
+          add:
+            headers: ["x-tenant-id:realtime-dev"]
+  - name: realtime-api
+    url: http://realtime-dev.supabase-realtime:4000/api
+    routes:
+      - name: realtime-api
+        paths: ["/realtime/v1/api"]
+    plugins:
+      - name: cors
