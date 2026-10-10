@@ -36,6 +36,8 @@ const room = ok(
 const browser = await chromium.launch({
   headless: true,
   args: ["--no-sandbox"],
+  channel: "chromium",
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
 });
 const errors = [];
 const contexts = [];
@@ -47,11 +49,6 @@ try {
     const page = await context.newPage();
     pages.push(page);
     page.on("pageerror", (error) => errors.push(error.message));
-    // These checks exercise application controls, not YouTube audio/availability.
-    await page.route(
-      /https:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com)\/.*/,
-      (route) => route.abort(),
-    );
     await page.goto(process.env.QA_PREVIEW_ACCESS_URL);
     const origin = new URL(page.url()).origin;
     await page.goto(origin + "/auth");
@@ -126,10 +123,11 @@ try {
     .locator("..")
     .getByRole("button", { name: "Ban", exact: true })
     .click();
-  await expect(a.getByRole("alert")).toContainText(
-    /access.*changed|restricted/i,
-    { timeout: 25000 },
-  );
+  await expect(
+    a.getByText("This room was deleted or your access has changed.", {
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 25000 });
   await expect(
     a.getByRole("button", { name: "Vote to skip", exact: true }),
   ).toHaveCount(0);
@@ -176,7 +174,7 @@ try {
         "rotate invite",
         "no uncaught JS errors",
       ],
-      youtubePlayback: "not tested; embeds blocked intentionally",
+      youtubePlayback: "audio and cross-device synchronization not verified",
     }),
   );
 } finally {
