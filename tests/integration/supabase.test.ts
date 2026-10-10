@@ -4,6 +4,14 @@ import { randomUUID } from "node:crypto";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const enabled = process.env.JAMROOM_LIVE_TESTS === "1" && !!url && !!key;
+if (
+  enabled &&
+  (url!.includes("lyvmjirmondcolhystjp") ||
+    new URL(url!).hostname !== process.env.JAMROOM_TEST_HOST)
+)
+  throw new Error(
+    "Isolated test host required; production live tests are forbidden",
+  );
 const videos = [
   "dQw4w9WgXcQ",
   "jNQXAC9IVRw",
@@ -18,6 +26,7 @@ describe.skipIf(!enabled)(
     let room: { id: string; slug: string; owner_id: string };
     let privateRoom: { id: string; slug: string; invite_code: string };
     let uidB: string;
+    let guestAvailable = false;
     let ownerEmail: string, ownerPassword: string;
     const owned: string[] = [];
     beforeAll(async () => {
@@ -57,7 +66,9 @@ describe.skipIf(!enabled)(
       const g = await guest.auth.signInAnonymously({
         options: { data: { display_name: "Guest test" } },
       });
-      if (g.error) throw g.error;
+      if (g.error && g.error.message !== "Anonymous sign-ins are disabled")
+        throw g.error;
+      guestAvailable = !g.error;
     });
     afterAll(async () => {
       for (const id of owned) await a.from("rooms").delete().eq("id", id);
@@ -67,7 +78,7 @@ describe.skipIf(!enabled)(
         guest?.auth.signOut(),
       ]);
     });
-    it("creates a permanent room and rejects anonymous ownership", async () => {
+    it("creates a permanent room", async () => {
       const result = await a.rpc("create_room", {
         p_name: "Persistence test",
         p_description: "Automated real DB check",
@@ -78,6 +89,9 @@ describe.skipIf(!enabled)(
       room = result.data;
       owned.push(room.id);
       expect(room.owner_id).toBe((await a.auth.getUser()).data.user?.id);
+    });
+    it("rejects anonymous ownership", async (context) => {
+      if (!guestAvailable) context.skip();
       const g = await guest.rpc("create_room", {
         p_name: "Cannot own",
         p_description: "",
@@ -99,11 +113,13 @@ describe.skipIf(!enabled)(
       let broadcast = false,
         changed = false,
         present = false;
+      let refreshPayload: Record<string, unknown> | undefined;
       cb.on("broadcast", { event: "reaction" }, ({ payload }) => {
         broadcast = payload.emoji === "🔥";
       });
       cb.on("broadcast", { event: "refresh" }, ({ payload }) => {
-        if (payload.table === "rooms") changed = true;
+        changed = true;
+        refreshPayload = payload;
       });
       cb.on("presence", { event: "sync" }, () => {
         present = Object.keys(cb.presenceState()).length > 0;
@@ -143,6 +159,10 @@ describe.skipIf(!enabled)(
         await expect
           .poll(() => ({ broadcast, changed, present }), { timeout: 10000 })
           .toEqual({ broadcast: true, changed: true, present: true });
+        // Hosted Realtime adds a random delivery id, never record contents.
+        expect(
+          Object.keys(refreshPayload!).filter((key) => key !== "id"),
+        ).toEqual([]);
       } finally {
         await a.removeChannel(ca);
         await b.removeChannel(cb);

@@ -28,6 +28,12 @@ export function useRoom(
   const [connection, setConnection] = useState("connecting");
   const [error, setError] = useState("");
   const [reaction, setReaction] = useState("");
+  const [votes, setVotes] = useState<{
+    votes: number;
+    required: number;
+    eligible: number;
+    has_voted: boolean;
+  } | null>(null);
   const [listening, setListening] = useState(false);
   const offset = useRef(0);
   const current = useRef<Playback | null>(null);
@@ -79,6 +85,9 @@ export function useRoom(
           .limit(12),
         db().rpc("playback_snapshot", { p_room: rid }),
         db().from("rooms").select("*").eq("id", rid).single(),
+        ...(process.env.NEXT_PUBLIC_ROOM_ENHANCEMENTS === "true"
+          ? [db().rpc("skip_vote_status", { p_room: rid })]
+          : []),
       ]);
       if (
         !mounted.current ||
@@ -89,6 +98,10 @@ export function useRoom(
       if (results[5].error?.code === "PGRST116") {
         setError("This room was deleted or your access has changed.");
         setListening(false);
+        if (channel.current) {
+          void db().removeChannel(channel.current);
+          channel.current = null;
+        }
         return;
       }
       const fail = results.find((r) => r.error);
@@ -100,6 +113,7 @@ export function useRoom(
       setHistory(results[3].data ?? []);
       adopt(results[4].data);
       setRoom(results[5].data);
+      if (results[6]) setVotes(results[6].data);
     },
     [adopt],
   );
@@ -117,6 +131,7 @@ export function useRoom(
     let alive = true;
     let ch: RealtimeChannel | null = null;
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let accessTimer: ReturnType<typeof setInterval> | null = null;
     let reactionTimer: ReturnType<typeof setTimeout> | null = null;
     setError("");
     (async () => {
@@ -129,6 +144,12 @@ export function useRoom(
         if (!alive) return;
         setRoom(r);
         await refresh(r.id);
+        if (!alive) return;
+        accessTimer = setInterval(() => {
+          void refresh(r.id).catch((e) => {
+            if (alive) toast.error(e.message);
+          });
+        }, 15000);
         const { data: profile } = await db()
           .from("profiles")
           .select("display_name,avatar_url")
@@ -195,6 +216,7 @@ export function useRoom(
     return () => {
       alive = false;
       mounted.current = false;
+      if (accessTimer) clearInterval(accessTimer);
       if (refreshTimer) clearTimeout(refreshTimer);
       if (reactionTimer) clearTimeout(reactionTimer);
       if (localReaction.current) clearTimeout(localReaction.current);
@@ -293,6 +315,27 @@ export function useRoom(
   };
   return {
     room,
+    votes,
+    voteSkip: async () => {
+      if (!room || !current.current) return;
+      const { data, error } = await db().rpc("vote_skip", {
+        p_room: room.id,
+        p_version: current.current.state_version,
+      });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      adopt(data);
+      toast.info(
+        data.conflict
+          ? "The track changed. Vote again for the current track."
+          : data.skipped
+            ? "Majority reached. Next track!"
+            : "Your skip vote is counted.",
+      );
+      await refresh(room.id);
+    },
     tracks,
     state,
     members,

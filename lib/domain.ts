@@ -41,6 +41,7 @@ export type Room = {
   allow_add: boolean;
   allow_manage: boolean;
   allow_control: boolean;
+  enhancements_enabled?: boolean;
 };
 export type Track = {
   id: string;
