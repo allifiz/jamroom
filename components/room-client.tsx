@@ -21,6 +21,7 @@ export function RoomClient({ slug }: { slug: string }) {
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
   const [voting, setVoting] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
   const [confetti, setConfetti] = useState(false);
   const r = useRoom(slug, user?.id ?? null, invite);
   useEffect(() => {
@@ -315,6 +316,38 @@ export function RoomClient({ slug }: { slug: string }) {
             <h2 className="text-xl">The hangout</h2>
             <span className="pill bg-paper">ROOM CHAT</span>
           </div>
+          {room.owner_id === user.id && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={clearingChat || busy || !r.messages.length}
+              onClick={async () => {
+                if (
+                  clearingChat ||
+                  !confirm(
+                    "Clear all chat history in this room for everyone? This cannot be undone.",
+                  )
+                )
+                  return;
+                setClearingChat(true);
+                try {
+                  const { error } = await db().rpc("clear_room_chat", {
+                    p_room: room.id,
+                  });
+                  if (error) throw error;
+                  await r.notify();
+                  toast.success("Chat history cleared for everyone.");
+                } catch (error) {
+                  toast.error((error as Error).message);
+                } finally {
+                  setClearingChat(false);
+                }
+              }}
+            >
+              {clearingChat ? "Clearing chat…" : "Clear chat history"}
+            </Button>
+          )}
           <div className="chat-list" role="log" aria-label="Room chat">
             {r.messages.map((m) => (
               <div className="chat-message" key={m.id}>
@@ -338,7 +371,7 @@ export function RoomClient({ slug }: { slug: string }) {
             className="chat-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (!text.trim() || busy) return;
+              if (!text.trim() || busy || clearingChat) return;
               setBusy(true);
               const { error } = await db().rpc("send_message", {
                 p_room: room.id,
@@ -360,7 +393,11 @@ export function RoomClient({ slug }: { slug: string }) {
               aria-label="Chat message"
               required
             />
-            <Button size="icon" aria-label="Send message" disabled={busy}>
+            <Button
+              size="icon"
+              aria-label="Send message"
+              disabled={busy || clearingChat}
+            >
               <Send size={17} />
             </Button>
           </form>
