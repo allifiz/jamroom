@@ -20,6 +20,7 @@ export function RoomClient({ slug }: { slug: string }) {
   const [nickname, setNickname] = useState("");
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
+  const [voting, setVoting] = useState(false);
   const [confetti, setConfetti] = useState(false);
   const r = useRoom(slug, user?.id ?? null, invite);
   useEffect(() => {
@@ -217,6 +218,41 @@ export function RoomClient({ slug }: { slug: string }) {
           onCommand={r.command}
           serverNow={r.serverNow}
         />
+        {process.env.NEXT_PUBLIC_ROOM_ENHANCEMENTS === "true" &&
+          room.enhancements_enabled &&
+          current && (
+            <section className="panel" aria-label="Skip voting">
+              <p className="small">
+                Skip votes: {r.votes?.votes ?? 0} / {r.votes?.required ?? 1}. A
+                majority of active listeners decides.
+              </p>
+              <Button
+                size="sm"
+                disabled={
+                  voting ||
+                  !r.listening ||
+                  r.state?.status !== "playing" ||
+                  r.votes?.has_voted
+                }
+                onClick={async () => {
+                  setVoting(true);
+                  try {
+                    await r.voteSkip();
+                  } finally {
+                    setVoting(false);
+                  }
+                }}
+              >
+                {r.votes?.has_voted ? "Vote counted" : "Vote to skip"}
+              </Button>
+              {!r.listening && (
+                <p className="small muted">
+                  Join & listen to vote. One vote per account; playback changes
+                  reset votes.
+                </p>
+              )}
+            </section>
+          )}
         {!current && r.tracks.length > 0 && can.control && (
           <Button
             onClick={async () => {

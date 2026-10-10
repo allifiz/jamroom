@@ -14,3 +14,5 @@ create function realtime.topic() returns text language sql stable as $$ select c
 create publication supabase_realtime;
 -- Broadcast is tested against the actual Realtime service in the live suite.
 create function realtime.broadcast_changes(text,text,text,text,text,record,record,text default 'ROW') returns void language plpgsql as $$ begin return; end $$;
+
+create function realtime.send(jsonb,text,text,boolean default true) returns void language plpgsql as $$ begin return; end $$;

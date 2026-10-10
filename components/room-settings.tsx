@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { db } from "@/lib/supabase";
 import type { Room, Member } from "@/lib/domain";
 import { Button } from "./ui/button";
+import { RoomModeration } from "./room-moderation";
 export function RoomSettings({
   room,
   members,
@@ -35,6 +36,9 @@ export function RoomSettings({
               allow_add: f.has("allow_add"),
               allow_manage: f.has("allow_manage"),
               allow_control: f.has("allow_control"),
+              ...(process.env.NEXT_PUBLIC_ROOM_ENHANCEMENTS === "true"
+                ? { enhancements_enabled: f.has("enhancements_enabled") }
+                : {}),
               updated_at: new Date().toISOString(),
             })
             .eq("id", room.id);
@@ -87,10 +91,24 @@ export function RoomSettings({
             {label}
           </label>
         ))}
+        {process.env.NEXT_PUBLIC_ROOM_ENHANCEMENTS === "true" && (
+          <label className="check-label">
+            <input
+              type="checkbox"
+              name="enhancements_enabled"
+              defaultChecked={room.enhancements_enabled}
+            />
+            Enable moderation and majority skip voting
+          </label>
+        )}
         <Button size="sm" disabled={busy}>
           Save settings
         </Button>
       </form>
+      {process.env.NEXT_PUBLIC_ROOM_ENHANCEMENTS === "true" &&
+        room.enhancements_enabled && (
+          <RoomModeration room={room} members={members} notify={notify} />
+        )}
       <p className="small font-bold">Individual DJ permissions</p>
       {members
         .filter((m) => m.user_id !== room.owner_id)
