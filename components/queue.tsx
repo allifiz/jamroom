@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -113,6 +113,14 @@ export function Queue({
   const [filter, setFilter] = useState("");
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [duplicate, setDuplicate] = useState(false);
+  const duplicateDialog = useRef<HTMLDialogElement>(null);
+  const duplicateTitle = useId();
+  useEffect(() => {
+    const dialog = duplicateDialog.current;
+    if (duplicate && dialog && !dialog.open) dialog.showModal();
+    else if (!duplicate && dialog?.open) dialog.close();
+  }, [duplicate]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, {
@@ -148,7 +156,7 @@ export function Queue({
       return;
     }
     if (tracks.some((t) => t.youtube_video_id === id)) {
-      toast.info("Already in the queue!");
+      setDuplicate(true);
       return;
     }
     setBusy(true);
@@ -168,6 +176,13 @@ export function Queue({
         p_channel: meta.channel_name,
         p_duration: meta.duration_seconds,
       });
+      if (
+        error?.code === "23505" &&
+        error.message.includes("youtube_video_id")
+      ) {
+        setDuplicate(true);
+        return;
+      }
       if (error) throw error;
       setUrl("");
       await notify();
@@ -190,6 +205,20 @@ export function Queue({
   }
   return (
     <section className="panel">
+      <dialog
+        ref={duplicateDialog}
+        aria-labelledby={duplicateTitle}
+        className="panel bg-paper m-auto w-[calc(100%-2rem)] max-w-md backdrop:bg-black/50"
+        onClose={() => setDuplicate(false)}
+      >
+        <h2 id={duplicateTitle} className="text-xl">
+          Lagu sudah ada di antrean
+        </h2>
+        <p className="muted my-4">Pilih lagu lain untuk ditambahkan.</p>
+        <Button type="button" onClick={() => setDuplicate(false)}>
+          Oke
+        </Button>
+      </dialog>
       <div className="queue-heading">
         <h2 className="text-xl flex items-center gap-2">
           <ListMusic size={20} />
