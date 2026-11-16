@@ -201,30 +201,28 @@ export default function RoomPage() {
           </div>
           <p className={styles.note}>{realtime}. Pemutaran mengikuti waktu room; browser mungkin meminta satu klik untuk mengaktifkan audio.</p>
         </section>
-        <aside className={styles.studioSide}>
-          <section className={styles.queuePanel} aria-label="Antrean lagu">
-            <div className={styles.sectionHeading}><h3><Music2 size={17} /> Antrean lagu</h3><span>{snapshot?.items.length ?? 0} lagu</span></div>
-            <button className={styles.queueAddButton} disabled={!snapshot?.canAdd} onClick={() => { setAddError(""); setAddOpen(true); }}><Plus size={16} /> Tambah lagu</button>
-            {!snapshot?.items.length && <p className={styles.note}>Belum ada lagu di antrean.</p>}
-            <div className={styles.queueItems}>{snapshot?.items.map((item, index) =>
-              <button key={item.id} disabled={!snapshot.canControl || busy} onClick={() => void command("select", { trackId: item.id })}
-                className={item.id === current?.id ? styles.queueActive : styles.queueItem}>
-                <span className={styles.queueNumber}>{item.id === current?.id ? "♫" : index + 1}</span>
-                <span><strong>{item.title}</strong><small>{item.artist ?? item.source_provider}</small></span>
-              </button>)}</div>
-          </section>
-          <section className={styles.chatPanel} aria-label="Obrolan room">
-            <div className={styles.sectionHeading}><h3><MessageCircle size={17} /> Obrolan</h3><span>Room chat</span></div>
-            <div className={styles.messages} ref={chatScroll} role="log" aria-live="polite">
-              {!messages.length && <p className={styles.note}>Belum ada pesan. Sapa temanmu duluan!</p>}
-              {messages.map(item => <div className={styles.message} key={item.id}>
-                <span className={styles.avatar}>{item.display_name.slice(0,2).toUpperCase()}</span>
-                <div><div className={styles.messageMeta}><strong>{item.user_id === profile?.id ? "Kamu" : item.display_name}</strong><time>{new Intl.DateTimeFormat("id-ID",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Jakarta"}).format(item.created_at)}</time></div><p>{item.body}</p></div>
-              </div>)}
-            </div>
-            <form className={styles.chatForm} onSubmit={sendMessage}><input aria-label="Tulis pesan" value={message} onChange={e => setMessage(e.target.value)} maxLength={500} placeholder="Tulis pesan untuk room…" required /><button disabled={sending || !message.trim()} aria-label="Kirim pesan"><Send size={17} /></button></form>
-          </section>
-        </aside>
+        <section className={styles.queuePanel} aria-label="Antrean lagu">
+          <div className={styles.sectionHeading}><h3><Music2 size={17} /> Antrean lagu</h3><span>{snapshot?.items.length ?? 0} lagu</span></div>
+          <button className={styles.queueAddButton} disabled={!snapshot?.canAdd} onClick={() => { setAddError(""); setAddOpen(true); }}><Plus size={16} /> Tambah lagu</button>
+          {!snapshot?.items.length && <p className={styles.note}>Belum ada lagu di antrean.</p>}
+          <div className={styles.queueItems}>{snapshot?.items.map((item, index) =>
+            <button key={item.id} disabled={!snapshot.canControl || busy} onClick={() => void command("select", { trackId: item.id })}
+              className={item.id === current?.id ? styles.queueActive : styles.queueItem}>
+              <span className={styles.queueNumber}>{item.id === current?.id ? "♫" : index + 1}</span>
+              <span><strong>{item.title}</strong><small>{item.artist ?? item.source_provider}</small></span>
+            </button>)}</div>
+        </section>
+        <section className={styles.chatPanel} aria-label="Obrolan room">
+          <div className={styles.sectionHeading}><h3><MessageCircle size={17} /> Obrolan</h3><span>Room chat</span></div>
+          <div className={styles.messages} ref={chatScroll} role="log" aria-live="polite">
+            {!messages.length && <p className={styles.note}>Belum ada pesan. Sapa temanmu duluan!</p>}
+            {messages.map(item => <div className={styles.message} key={item.id}>
+              <span className={styles.avatar}>{item.display_name.slice(0,2).toUpperCase()}</span>
+              <div><div className={styles.messageMeta}><strong>{item.user_id === profile?.id ? "Kamu" : item.display_name}</strong><time>{new Intl.DateTimeFormat("id-ID",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Jakarta"}).format(item.created_at)}</time></div><p>{item.body}</p></div>
+            </div>)}
+          </div>
+          <form className={styles.chatForm} onSubmit={sendMessage}><input aria-label="Tulis pesan" value={message} onChange={e => setMessage(e.target.value)} maxLength={500} placeholder="Tulis pesan untuk room…" required /><button disabled={sending || !message.trim()} aria-label="Kirim pesan"><Send size={17} /></button></form>
+        </section>
       </div>
       <dialog ref={addDialog} className={styles.addDialog} aria-labelledby="add-song-title" onClose={() => setAddOpen(false)} onClick={event => { if (event.target === event.currentTarget) setAddOpen(false); }}>
         <div className={styles.dialogContent}>
