@@ -66,6 +66,9 @@ describe("Synora HTTP boundary backed by real libSQL", () => {
     expect(result.recoveryKey).toMatch(/^[\w-]{43}$/);
     expect(JSON.stringify(result.room)).not.toContain("recovery_hash");
     expect((await (await GET(request("/api/synora/rooms", "GET"))).json()).owned).toHaveLength(1);
+    const {POST:session}=await import("../app/api/synora/session/route");
+    const home=await session(request("/api/synora/session?rooms=1","POST"));
+    expect((await home.json()).rooms.owned).toHaveLength(1);
     expect((await GET(new NextRequest(origin + "/api/synora/rooms"))).status).toBe(401);
   });
 

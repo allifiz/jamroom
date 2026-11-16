@@ -26,11 +26,10 @@ export default function SynoraHome() {
     let cancelled = false;
     (async () => {
       try {
-        const session = await api<{ profile: Profile }>("/session", "POST");
+        const session = await api<{ profile: Profile; rooms: Rooms }>("/session?rooms=1", "POST");
         if (cancelled) return;
         setProfile(session.profile);
-        const list = await api<Rooms>("/rooms");
-        if (!cancelled) setRooms(list);
+        setRooms(session.rooms);
       } catch (e) { if (!cancelled) setError((e as Error).message); }
     })();
     return () => { cancelled = true; };

@@ -78,12 +78,15 @@ export async function joinRoom(db:SynoraStore,token:unknown,slug:string,invite:u
 }
 export async function listRooms(db:SynoraStore,token:unknown,now=Date.now()) {
   const user=await authenticate(db,token,now);
+  return listRoomsForUser(db,user.id,now);
+}
+export async function listRoomsForUser(db:SynoraStore,userId:string,now=Date.now()) {
   const columns=publicColumns.split(",").map(c=>"r."+c).join(",");
   const visible="NOT EXISTS(SELECT 1 FROM room_restrictions b WHERE b.room_id=r.id AND b.user_id=? AND (b.expires_at IS NULL OR b.expires_at>?))";
   const [discover,owned,recent]=await Promise.all([
-    db.query<RoomRow>("SELECT "+columns+" FROM rooms r WHERE r.visibility='public' AND (r.owner_id=? OR "+visible+") ORDER BY r.updated_at DESC LIMIT 100",[user.id,user.id,now]),
-    db.query<RoomRow>("SELECT "+columns+" FROM rooms r WHERE r.owner_id=? ORDER BY r.updated_at DESC LIMIT 100",[user.id]),
-    db.query<RoomRow>("SELECT "+columns+" FROM rooms r JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND (r.owner_id=? OR "+visible+") ORDER BY m.joined_at DESC LIMIT 100",[user.id,user.id,user.id,now]),
+    db.query<RoomRow>("SELECT "+columns+" FROM rooms r WHERE r.visibility='public' AND (r.owner_id=? OR "+visible+") ORDER BY r.updated_at DESC LIMIT 100",[userId,userId,now]),
+    db.query<RoomRow>("SELECT "+columns+" FROM rooms r WHERE r.owner_id=? ORDER BY r.updated_at DESC LIMIT 100",[userId]),
+    db.query<RoomRow>("SELECT "+columns+" FROM rooms r JOIN room_members m ON m.room_id=r.id WHERE m.user_id=? AND (r.owner_id=? OR "+visible+") ORDER BY m.joined_at DESC LIMIT 100",[userId,userId,userId,now]),
   ]);
   return {discover,owned,recent};
 }
