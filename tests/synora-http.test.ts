@@ -3,6 +3,7 @@ import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
+import { sameOrigin } from "../synora/server/http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -32,6 +33,16 @@ beforeAll(async () => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("Synora HTTP boundary backed by real libSQL", () => {
+  it("accepts the browser host even if the server binds to another address", () => {
+    const local = new NextRequest("http://0.0.0.0:3107/api/synora/session", {
+      method:"POST", headers:{ Host:"localhost:3107", Origin:"http://localhost:3107" },
+    });
+    expect(() => sameOrigin(local)).not.toThrow();
+    const other = new NextRequest("http://0.0.0.0:3107/api/synora/session", {
+      method:"POST", headers:{ Host:"localhost:3107", Origin:"https://evil.example" },
+    });
+    expect(() => sameOrigin(other)).toThrow();
+  });
   it("rejects cross-site bootstrap and creates a durable anonymous session", async () => {
     const { POST } = await import("../app/api/synora/session/route");
     expect((await POST(request("/api/synora/session", "POST", undefined, "https://evil.example"))).status).toBe(403);

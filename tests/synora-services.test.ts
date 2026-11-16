@@ -5,6 +5,7 @@ import { bootstrapIdentity, renameIdentity, authenticate } from "../synora/core/
 import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/room-service";
 import { issueSecret } from "../synora/core/identity";
 import { addQueueItem, parseQueueRequest, queueSnapshot } from "../synora/core/queue-service";
+import { controlPlayback } from "../synora/core/playback-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -78,5 +79,41 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     expect((await queueSnapshot(store,a.cookie,room.room.slug)).items).toHaveLength(1);
     await expect(queueSnapshot(store,issueSecret().token,room.room.slug)).rejects.toMatchObject({status:401});
     expect(()=>parseQueueRequest({url:"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"})).toThrowError(/match/);
+  });
+  it("synchronizes playback through versioned transactions and advances on track end",async()=>{
+    const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Listening Room"});
+    await joinRoom(store,b.cookie,room.room.slug,null);
+    const source=parseQueueRequest({url:"https://www.youtube.com/watch?v=dQw4w9WgXcQ"});
+    const first=await addQueueItem(store,a.cookie,room.room.slug,{...source,title:"First",artist:null,thumbnail:null,durationSeconds:null},1000);
+    const nextSource=parseQueueRequest({url:"https://www.youtube.com/watch?v=M7lc1UVf-VE"});
+    const second=await addQueueItem(store,a.cookie,room.room.slug,{...nextSource,title:"Second",artist:null,thumbnail:null,durationSeconds:null},1000);
+    const slug=room.room.slug;
+    expect((await queueSnapshot(store,b.cookie,slug,2000)).canControl).toBe(true);
+    const playing=await controlPlayback(store,a.cookie,slug,{action:"play",expectedVersion:1},2000);
+    expect(playing.state).toMatchObject({current_track_id:first.id,status:"playing",playback_started_at:2000,state_version:2});
+    await expect(controlPlayback(store,b.cookie,slug,{action:"pause",expectedVersion:1},4000)).rejects.toMatchObject({status:409});
+    const paused=await controlPlayback(store,b.cookie,slug,{action:"pause",expectedVersion:2},7000);
+    expect(paused.state).toMatchObject({position_seconds:5,status:"paused",state_version:3});
+    const sought=await controlPlayback(store,a.cookie,slug,{action:"seek",expectedVersion:3,positionSeconds:20},8000);
+    expect(sought.state.position_seconds).toBe(20);
+    await controlPlayback(store,a.cookie,slug,{action:"play",expectedVersion:4},9000);
+    const advanced=await controlPlayback(store,b.cookie,slug,{action:"ended",trackId:first.id,expectedVersion:5},12000);
+    expect(advanced.state).toMatchObject({current_track_id:second.id,status:"playing",position_seconds:0,state_version:6});
+    await expect(controlPlayback(store,a.cookie,slug,{action:"ended",trackId:first.id,expectedVersion:6},13000)).rejects.toMatchObject({status:409});
+    const stopped=await controlPlayback(store,a.cookie,slug,{action:"next",expectedVersion:6},14000);
+    expect(stopped.state).toMatchObject({current_track_id:null,status:"stopped"});
+    expect((await queueSnapshot(store,b.cookie,slug,15000)).state).toMatchObject({status:"stopped",state_version:7});
+  });
+  it("enforces control permission and rejects a selected track from another room",async()=>{
+    const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Only DJ"});
+    const other=await createRoom(store,a.cookie,{name:"Other"});
+    await joinRoom(store,b.cookie,room.room.slug,null);
+    db.prepare("UPDATE rooms SET allow_control=0 WHERE id=?").run(room.room.id);
+    const candidate=parseQueueRequest({url:"https://www.youtube.com/watch?v=dQw4w9WgXcQ"});
+    const item=await addQueueItem(store,a.cookie,other.room.slug,{...candidate,title:"Other track",artist:null,thumbnail:null,durationSeconds:null});
+    await expect(controlPlayback(store,b.cookie,room.room.slug,{action:"play",expectedVersion:0})).rejects.toMatchObject({status:403});
+    await expect(controlPlayback(store,a.cookie,room.room.slug,{action:"select",expectedVersion:0,trackId:item.id})).rejects.toMatchObject({status:404});
   });
 });

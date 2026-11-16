@@ -12,7 +12,7 @@ type Item = {
   thumbnail: string | null; duration_seconds: number | null; position: number; added_by: string; added_at: number;
 };
 
-async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: number) {
+export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: number) {
   const user = await authenticate(tx, token, now);
   const [room] = await tx.query<Room>("SELECT id,owner_id,visibility,allow_add,allow_manage,allow_control FROM rooms WHERE slug=?", [slug]);
   if (!room) throw new ServiceError(404, "Room unavailable");
@@ -27,10 +27,10 @@ async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: nu
 }
 
 export async function queueSnapshot(db: SynoraStore, token: unknown, slug: string, now = Date.now()) {
-  const { room } = await roomAccess(db,slug,token,now);
+  const { room, permissions } = await roomAccess(db,slug,token,now);
   const items = await db.query<Item>("SELECT id,room_id,source_provider,source_url,playback_provider,playback_external_id,playback_url,title,artist,thumbnail,duration_seconds,position,added_by,added_at FROM playlist_items WHERE room_id=? ORDER BY position",[room.id]);
   const [state] = await db.query("SELECT current_track_id,status,position_seconds,playback_started_at,updated_at,state_version FROM room_playback_states WHERE room_id=?",[room.id]);
-  return { items, state, now };
+  return { items, state, now, canControl: permissions.control, canAdd: permissions.add };
 }
 
 export async function requireQueueAdd(db: SynoraStore, token: unknown, slug: string, now = Date.now()) {

@@ -15,8 +15,10 @@ export function setSession(response: NextResponse, request: NextRequest, token: 
 
 export function sameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  // Browser state mutations must carry Origin; the host is supplied by the runtime.
-  if (!origin || origin !== request.nextUrl.origin || request.headers.get("sec-fetch-site") === "cross-site") {
+  // The server bind address can differ from the host the browser actually used.
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  const expected = `${request.nextUrl.protocol}//${host}`;
+  if (!origin || origin !== expected || request.headers.get("sec-fetch-site") === "cross-site") {
     throw new ServiceError(403, "Invalid request origin");
   }
 }
