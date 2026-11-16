@@ -476,6 +476,28 @@ footer {
   padding: 28px 6%;
   font-size: 12px;
 }
+body:has([data-synora-shell]) {
+  --paper: #111724;
+  --ink: #f2edff;
+  background: #111724;
+  color: #f2edff;
+}
+body:has([data-synora-shell]) .header {
+  border-bottom-color: #ffffff25;
+}
+body:has([data-synora-shell]) .header .brand-icon {
+  color: #172036;
+  box-shadow: 3px 3px 0 #e6b1f5;
+}
+body:has([data-synora-shell]) .header .button {
+  color: #192238;
+  border-color: #e7dbfa;
+  box-shadow: 3px 3px 0 #8b6fbd;
+}
+body:has([data-synora-shell]) footer {
+  border-top-color: #ffffff25;
+  color: #b8aecb;
+}
 .page-title {
   font-size: 45px;
   letter-spacing: -2px;

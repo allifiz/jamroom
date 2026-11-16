@@ -6,6 +6,7 @@ import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/roo
 import { issueSecret } from "../synora/core/identity";
 import { addQueueItem, parseQueueRequest, queueSnapshot } from "../synora/core/queue-service";
 import { controlPlayback } from "../synora/core/playback-service";
+import { listRoomMessages, roomListeners, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -115,5 +116,24 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     const item=await addQueueItem(store,a.cookie,other.room.slug,{...candidate,title:"Other track",artist:null,thumbnail:null,durationSeconds:null});
     await expect(controlPlayback(store,b.cookie,room.room.slug,{action:"play",expectedVersion:0})).rejects.toMatchObject({status:403});
     await expect(controlPlayback(store,a.cookie,room.room.slug,{action:"select",expectedVersion:0,trackId:item.id})).rejects.toMatchObject({status:404});
+  });
+  it("persists chat, checks membership, and tracks separate browser tabs",async()=>{
+    const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Social Room",visibility:"private"});
+    await expect(sendRoomMessage(store,b.cookie,room.room.slug,"hello")).rejects.toMatchObject({status:404});
+    await joinRoom(store,b.cookie,room.room.slug,room.inviteKey);
+    await sendRoomMessage(store,b.cookie,room.room.slug,"  Halo room!  ",1000);
+    expect((await listRoomMessages(store,a.cookie,room.room.slug,2000)).messages).toMatchObject([{body:"Halo room!",display_name:b.profile.display_name}]);
+    const tab1="11111111-1111-4111-8111-111111111111",tab2="22222222-2222-4222-8222-222222222222";
+    await updateRoomPresence(store,a.cookie,room.room.slug,tab1,false,3000);
+    await updateRoomPresence(store,a.cookie,room.room.slug,tab2,false,3001);
+    expect((await roomListeners(store,b.cookie,room.room.slug,3002)).listeners).toMatchObject([{id:a.profile.id,is_owner:1}]);
+    await updateRoomPresence(store,a.cookie,room.room.slug,tab1,true,3003);
+    expect((await roomListeners(store,b.cookie,room.room.slug,3004)).listeners).toHaveLength(1);
+    await updateRoomPresence(store,a.cookie,room.room.slug,tab2,true,3005);
+    expect((await roomListeners(store,b.cookie,room.room.slug,3006)).listeners).toHaveLength(0);
+    await updateRoomPresence(store,b.cookie,room.room.slug,tab1,false,4000);
+    expect((await roomListeners(store,a.cookie,room.room.slug,50000)).listeners).toHaveLength(0);
+    await expect(sendRoomMessage(store,b.cookie,room.room.slug,"\u0000oops",5000)).rejects.toMatchObject({status:400});
   });
 });

@@ -14,12 +14,12 @@ export function Header() {
         <span className="brand-icon">
           <Disc3 size={27} />
         </span>
-        jamroom<span className="brand-dot">✳</span>
+        {synora ? "synora" : "jamroom"}<span className="brand-dot">✳</span>
       </Link>
       <nav>
         <Link href={synora ? "/synora" : "/dashboard"} className="nav-link">
           <Radio size={17} />
-          The rooms
+          {synora ? "Ruang" : "The rooms"}
         </Link>
         {!synora && <Button asChild variant="outline" size="sm">
           <Link
@@ -32,7 +32,7 @@ export function Header() {
         </Button>}
         <Button asChild size="sm">
           <Link href={synora ? "/synora/create" : "/create"}>
-            Create room <ArrowUpRight size={18} />
+            {synora ? "Buat ruang" : "Create room"} <ArrowUpRight size={18} />
           </Link>
         </Button>
       </nav>
