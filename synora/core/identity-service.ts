@@ -27,6 +27,15 @@ export async function authenticate(db: SqlExecutor, token: unknown, now = Date.n
 // Call ONLY from the anonymous bootstrap endpoint. Mutations call authenticate instead.
 // Cookie value is returned to the HTTP adapter, never serialized into the profile response.
 export async function bootstrapIdentity(db: SynoraStore, token: unknown, now = Date.now()) {
+  if (validSecret(token)) {
+    const [existing]=await db.query<SessionRow>(
+      "SELECT p.id,p.display_name,p.avatar_seed,p.avatar_url,s.expires_at FROM sessions s JOIN profiles p ON p.id=s.user_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?",
+      [hashSecret(token),now]);
+    if (existing && existing.expires_at-now>=30*24*3600*1000) {
+      return {profile:{id:existing.id,display_name:existing.display_name,avatar_seed:existing.avatar_seed,
+        avatar_url:existing.avatar_url},cookie:null,created:false};
+    }
+  }
   return db.write(async tx => {
     if (validSecret(token)) {
       const hash = hashSecret(token);

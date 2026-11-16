@@ -6,6 +6,7 @@ export type PlaybackState = { current_track_id: string | null; status: "playing"
 export type Snapshot = { items: Track[]; state: PlaybackState | null; now: number; canControl: boolean; canAdd: boolean; canManage: boolean };
 export type RoomMessage = { id: string; user_id: string; display_name: string; body: string; created_at: number };
 export type Listener = { id: string; display_name: string; is_owner: number; last_seen: number };
+export type RoomView = Snapshot & { messages: RoomMessage[]; listeners: Listener[] };
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch("/api/synora" + path, {

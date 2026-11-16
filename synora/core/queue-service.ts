@@ -1,12 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { roomPermissions } from "./identity";
+import { hashSecret, roomPermissions, validSecret } from "./identity";
 import { authenticate, ServiceError } from "./identity-service";
 import { parseMusicSource, playbackCandidate, type MusicPlayback, type MusicSource } from "./music";
 import type { SqlExecutor, SynoraStore } from "./store";
 
 type Room = { id: string; owner_id: string; visibility: "public" | "private"; allow_add: number; allow_manage: number; allow_control: number };
 type Member = { role: "ADMIN" | "DJ" | "MEMBER"; can_manage: number; can_control: number };
+type AccessRow = {
+  user_id:string; display_name:string; avatar_seed:string; avatar_url:string|null;
+  room_id:string; owner_id:string; visibility:"public"|"private";
+  allow_add:number; allow_manage:number; allow_control:number;
+  role:Member["role"]|null; member_can_manage:number|null; member_can_control:number|null;
+  restriction_room_id:string|null; expires_at:number|null;
+};
 type Item = {
   id: string; room_id: string; source_provider: string; source_url: string; playback_provider: string;
   playback_external_id: string; playback_url: string; title: string; artist: string | null;
@@ -14,21 +21,29 @@ type Item = {
 };
 
 export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: number) {
-  const [user, rooms] = await Promise.all([
-    authenticate(tx,token,now),
-    tx.query<Room>("SELECT id,owner_id,visibility,allow_add,allow_manage,allow_control FROM rooms WHERE slug=?",[slug]),
-  ]);
-  const [room] = rooms;
-  if (!room) throw new ServiceError(404, "Room unavailable");
-  const [members, restrictions] = await Promise.all([
-    tx.query<Member>("SELECT role,can_manage,can_control FROM room_members WHERE room_id=? AND user_id=?",[room.id,user.id]),
-    tx.query<{expires_at:number|null}>("SELECT expires_at FROM room_restrictions WHERE room_id=? AND user_id=?",[room.id,user.id]),
-  ]);
-  const [member] = members, [restriction] = restrictions;
+  if (!validSecret(token)) throw new ServiceError(401,"Session required");
+  const [row]=await tx.query<AccessRow>(
+    `SELECT p.id AS user_id,p.display_name,p.avatar_seed,p.avatar_url,
+      r.id AS room_id,r.owner_id,r.visibility,r.allow_add,r.allow_manage,r.allow_control,
+      m.role,m.can_manage AS member_can_manage,m.can_control AS member_can_control,
+      b.room_id AS restriction_room_id,b.expires_at
+     FROM sessions s JOIN profiles p ON p.id=s.user_id
+     CROSS JOIN rooms r
+     LEFT JOIN room_members m ON m.room_id=r.id AND m.user_id=p.id
+     LEFT JOIN room_restrictions b ON b.room_id=r.id AND b.user_id=p.id
+     WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND r.slug=?`,
+    [hashSecret(token),now,slug]);
+  if (!row) {
+    await authenticate(tx,token,now);
+    throw new ServiceError(404,"Room unavailable");
+  }
+  const user={id:row.user_id,display_name:row.display_name,avatar_seed:row.avatar_seed,avatar_url:row.avatar_url};
+  const room:Room={id:row.room_id,owner_id:row.owner_id,visibility:row.visibility,
+    allow_add:row.allow_add,allow_manage:row.allow_manage,allow_control:row.allow_control};
   const permissions = roomPermissions({ ownerId:room.owner_id, visibility:room.visibility, allowAdd:!!room.allow_add,
     allowManage:!!room.allow_manage, allowControl:!!room.allow_control },user.id,
-    member?{role:member.role,canManage:!!member.can_manage,canControl:!!member.can_control}:undefined,
-    restriction?{expiresAt:restriction.expires_at}:undefined,now);
+    row.role?{role:row.role,canManage:!!row.member_can_manage,canControl:!!row.member_can_control}:undefined,
+    row.restriction_room_id?{expiresAt:row.expires_at}:undefined,now);
   if (!permissions.read) throw new ServiceError(404, "Room unavailable");
   return { user, room, permissions };
 }

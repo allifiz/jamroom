@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Trash2, Users, X } from "lucide-react";
 import type { TokenRequest } from "@ably/pubsub-device";
-import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type Snapshot, type Track } from "../../client-api";
+import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type RoomView, type Snapshot, type Track } from "../../client-api";
 import { SyncedPlayer } from "./synced-player";
 import styles from "../../synora.module.css";
 
@@ -42,13 +42,13 @@ export default function RoomPage() {
     const result = await api<Snapshot>("/rooms/" + encoded + "/queue");
     if (requestId === queueRequest.current) setSnapshot({ ...result, receivedAt: Date.now() });
   }, [encoded]);
-  const reloadSocial = useCallback(async () => {
-    const [chat, presence] = await Promise.all([
-      api<{messages:RoomMessage[]}>("/rooms/" + encoded + "/messages"),
-      api<{listeners:Listener[]}>("/rooms/" + encoded + "/presence"),
-    ]);
-    setMessages(chat.messages);
-    setListeners(presence.listeners);
+  const reloadView = useCallback(async () => {
+    const requestId=++queueRequest.current;
+    const view=await api<RoomView>("/rooms/"+encoded+"/view");
+    if(requestId!==queueRequest.current)return;
+    setSnapshot({...view,receivedAt:Date.now()});
+    setMessages(view.messages);
+    setListeners(view.listeners);
   }, [encoded]);
 
   const join = useCallback(async (inviteKey?: string) => {
@@ -56,14 +56,16 @@ export default function RoomPage() {
     try {
       const session = await api<{profile:Profile}>("/session", "POST");
       setProfile(session.profile);
-      const data = await api<{ room: Room }>("/rooms/" + encoded + "/join", "POST", { inviteKey: inviteKey || null });
+      const data = await api<{ room: Room; view: RoomView }>("/rooms/" + encoded + "/join", "POST", { inviteKey: inviteKey || null });
+      queueRequest.current++;
       setRoom(data.room); setNeedsInvite(false);
-      await Promise.all([reload(),reloadSocial()]);
+      setSnapshot({...data.view,receivedAt:Date.now()});
+      setMessages(data.view.messages);setListeners(data.view.listeners);
     } catch (e) {
       setError((e as Error).message);
       if (!inviteKey) setNeedsInvite(true);
     } finally { setBusy(false); }
-  }, [encoded, reload, reloadSocial]);
+  }, [encoded]);
 
   useEffect(() => { void join(); }, [join]);
   useEffect(() => { const timer = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(timer); }, []);
@@ -113,18 +115,17 @@ export default function RoomPage() {
         close = () => client.close();
         const channel = client.channels.get("synora:room:" + room.id);
         await channel.subscribe(() => {
-          void reload().catch(e => setError((e as Error).message));
-          void reloadSocial().catch(e => setError((e as Error).message));
+          void reloadView().catch(e => setError((e as Error).message));
         });
         if (!cancelled) setRealtime("Realtime terhubung");
         else client.close();
       } catch (e) { if (!cancelled) setRealtime("Realtime belum terhubung: " + (e as Error).message); }
     })();
-    const onFocus = () => { void reload().catch(e => setError((e as Error).message)); void reloadSocial().catch(() => {}); };
-    const fallback = setInterval(() => { void reload().catch(() => {}); void reloadSocial().catch(() => {}); }, 30000);
+    const onFocus = () => { void reloadView().catch(e => setError((e as Error).message)); };
+    const fallback = setInterval(() => { void reloadView().catch(() => {}); }, 30000);
     window.addEventListener("focus", onFocus);
     return () => { cancelled = true; close?.(); clearInterval(fallback); window.removeEventListener("focus", onFocus); };
-  }, [room, encoded, reload, reloadSocial]);
+  }, [room, encoded, reloadView]);
 
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();

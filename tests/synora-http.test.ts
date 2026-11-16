@@ -69,6 +69,19 @@ describe("Synora HTTP boundary backed by real libSQL", () => {
     expect((await GET(new NextRequest(origin + "/api/synora/rooms"))).status).toBe(401);
   });
 
+  it("returns the initial room view in one authorized response",async()=>{
+    const rooms=await import("../app/api/synora/rooms/route");
+    const created=await rooms.POST(request("/api/synora/rooms","POST",{name:"Room View Test",visibility:"private"}));
+    const {room}=await created.json();
+    const path="/api/synora/rooms/"+room.slug+"/view";
+    const {GET}=await import("../app/api/synora/rooms/[slug]/view/route");
+    const context={params:Promise.resolve({slug:room.slug})};
+    expect((await GET(new NextRequest(origin+path),context)).status).toBe(401);
+    const response=await GET(request(path,"GET"),context);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({items:[],messages:[],listeners:[],canControl:true,canManage:true,state:{status:"stopped"}});
+  });
+
   it("issues a short-lived Ably token only for an accessible room",async()=>{
     process.env.ABLY_API_KEY="abcd.12345:abcde";
     const rooms=await import("../app/api/synora/rooms/route");

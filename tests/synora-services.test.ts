@@ -6,7 +6,7 @@ import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/roo
 import { issueSecret } from "../synora/core/identity";
 import { addQueueItem, parseQueueRequest, queueSnapshot, removeQueueItem, reorderQueue } from "../synora/core/queue-service";
 import { controlPlayback } from "../synora/core/playback-service";
-import { listRoomMessages, roomListeners, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
+import { listRoomMessages, roomListeners, roomView, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -163,5 +163,22 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     await updateRoomPresence(store,b.cookie,room.room.slug,tab1,false,4000);
     expect((await roomListeners(store,a.cookie,room.room.slug,50000)).listeners).toHaveLength(0);
     await expect(sendRoomMessage(store,b.cookie,room.room.slug,"\u0000oops",5000)).rejects.toMatchObject({status:400});
+  });
+  it("loads the complete room through one access check without opening a write transaction for returning users",async()=>{
+    const a=await bootstrapIdentity(store,null);
+    const created=await createRoom(store,a.cookie,{name:"Fast Room"});
+    let writes=0,reads=0;
+    const measured:SynoraStore={...store,
+      async query<T>(sql:string,args:SqlValue[]=[]){reads++;return store.query<T>(sql,args);},
+      async write<T>(callback:(tx:SqlExecutor)=>Promise<T>){writes++;return store.write(callback);}};
+    expect((await bootstrapIdentity(measured,a.cookie)).profile.id).toBe(a.profile.id);
+    expect((await joinRoom(measured,a.cookie,created.room.slug,null)).id).toBe(created.room.id);
+    reads=0;
+    const view=await roomView(measured,a.cookie,created.room.slug);
+    expect(view).toMatchObject({items:[],messages:[],listeners:[],canManage:true,canControl:true});
+    expect(view.state).toMatchObject({status:"stopped"});
+    expect(writes).toBe(0);
+    expect(reads).toBe(5);
+    await expect(roomView(measured,issueSecret().token,created.room.slug)).rejects.toMatchObject({status:401});
   });
 });

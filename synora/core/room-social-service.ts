@@ -7,6 +7,20 @@ const PRESENCE_TTL_MS = 45_000;
 type MessageRow = { id: string; user_id: string; display_name: string; body: string; created_at: number };
 type Listener = { id: string; display_name: string; is_owner: number; last_seen: number };
 
+// One authorization check and one parallel read batch for the whole room.
+// This backs initial entry and realtime refresh instead of three API calls.
+export async function roomView(db: SynoraStore, token: unknown, slug: string, now = Date.now()) {
+  const {room,permissions}=await roomAccess(db,slug,token,now);
+  const [items,states,chat,listeners]=await Promise.all([
+    db.query("SELECT id,room_id,source_provider,source_url,playback_provider,playback_external_id,playback_url,title,artist,thumbnail,duration_seconds,position,added_by,added_at FROM playlist_items WHERE room_id=? ORDER BY position",[room.id]),
+    db.query("SELECT current_track_id,status,position_seconds,playback_started_at,updated_at,state_version FROM room_playback_states WHERE room_id=?",[room.id]),
+    db.query<MessageRow>("SELECT m.id,m.user_id,p.display_name,m.body,m.created_at FROM room_messages m JOIN profiles p ON p.id=m.user_id WHERE m.room_id=? ORDER BY m.created_at DESC,m.id DESC LIMIT 50",[room.id]),
+    db.query<Listener>("SELECT p.id,p.display_name,CASE WHEN p.id=? THEN 1 ELSE 0 END AS is_owner,MAX(l.last_seen) AS last_seen FROM room_listener_leases l JOIN profiles p ON p.id=l.user_id WHERE l.room_id=? AND l.last_seen>=? GROUP BY p.id,p.display_name ORDER BY is_owner DESC,last_seen DESC LIMIT 100",[room.owner_id,room.id,now-PRESENCE_TTL_MS]),
+  ]);
+  return {items,state:states[0]??null,messages:chat.reverse(),listeners,now,
+    canControl:permissions.control,canAdd:permissions.add,canManage:permissions.manage};
+}
+
 async function notify(tx: SqlExecutor, roomId: string, now: number) {
   await tx.execute("INSERT INTO realtime_outbox(id,room_id,event,created_at) VALUES(?,?,'refresh',?)", [randomUUID(),roomId,now]);
 }

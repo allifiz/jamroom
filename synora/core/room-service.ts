@@ -31,8 +31,11 @@ async function notify(tx:SqlExecutor,roomId:string,at:number,event:"refresh"|"ac
   await tx.execute("INSERT INTO realtime_outbox(id,room_id,event,created_at) VALUES(?,?,?,?)",[randomUUID(),roomId,event,at]);
 }
 async function access(tx:SqlExecutor,r:RoomRow,userId:string,now:number) {
-  const [m] = await tx.query<Membership>("SELECT role,can_manage,can_control FROM room_members WHERE room_id=? AND user_id=?",[r.id,userId]);
-  const [b] = await tx.query<{expires_at:number|null}>("SELECT expires_at FROM room_restrictions WHERE room_id=? AND user_id=?",[r.id,userId]);
+  const [members,restrictions]=await Promise.all([
+    tx.query<Membership>("SELECT role,can_manage,can_control FROM room_members WHERE room_id=? AND user_id=?",[r.id,userId]),
+    tx.query<{expires_at:number|null}>("SELECT expires_at FROM room_restrictions WHERE room_id=? AND user_id=?",[r.id,userId]),
+  ]);
+  const [m]=members,[b]=restrictions;
   return roomPermissions({ownerId:r.owner_id,visibility:r.visibility,allowAdd:!!r.allow_add,allowManage:!!r.allow_manage,allowControl:!!r.allow_control},userId,
     m?{role:m.role,canManage:!!m.can_manage,canControl:!!m.can_control}:undefined,
     b?{expiresAt:b.expires_at}:undefined,now);
@@ -56,6 +59,8 @@ export async function createRoom(db:SynoraStore, token:unknown, raw:unknown, now
 }
 
 export async function joinRoom(db:SynoraStore,token:unknown,slug:string,invite:unknown,now=Date.now()) {
+  const [user,existing]=await Promise.all([authenticate(db,token,now),readRoom(db,slug)]);
+  if(existing && (await access(db,existing,user.id,now)).member) return publicRoom(existing);
   return db.write(async tx=>{
     const user=await authenticate(tx,token,now);
     const r=await readRoom(tx,slug);
