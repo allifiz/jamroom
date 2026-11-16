@@ -1,24 +1,27 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Disc3, ArrowUpRight, UserRound, Radio } from "lucide-react";
 import { useAuth } from "./providers";
 import { Button } from "./ui/button";
 export function Header() {
   const { user } = useAuth();
+  const pathname = usePathname();
+  const synora = pathname === "/synora" || pathname.startsWith("/synora/");
   return (
     <header className="header">
-      <Link className="brand" href="/">
+      <Link className="brand" href={synora ? "/synora" : "/"}>
         <span className="brand-icon">
           <Disc3 size={27} />
         </span>
         jamroom<span className="brand-dot">✳</span>
       </Link>
       <nav>
-        <Link href="/dashboard" className="nav-link">
+        <Link href={synora ? "/synora" : "/dashboard"} className="nav-link">
           <Radio size={17} />
           The rooms
         </Link>
-        <Button asChild variant="outline" size="sm">
+        {!synora && <Button asChild variant="outline" size="sm">
           <Link
             aria-label={user ? "My profile" : "Sign in"}
             href={user ? "/profile" : "/auth"}
@@ -26,9 +29,9 @@ export function Header() {
             <UserRound size={17} />
             <span>{user ? "My profile" : "Sign in"}</span>
           </Link>
-        </Button>
+        </Button>}
         <Button asChild size="sm">
-          <Link href="/create">
+          <Link href={synora ? "/synora/create" : "/create"}>
             Create room <ArrowUpRight size={18} />
           </Link>
         </Button>
