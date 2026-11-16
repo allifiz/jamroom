@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Users } from "lucide-react";
+import { Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Users, X } from "lucide-react";
 import type { TokenRequest } from "@ably/pubsub-device";
 import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type Snapshot } from "../../client-api";
 import { SyncedPlayer } from "./synced-player";
@@ -24,10 +24,13 @@ export default function RoomPage() {
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const chatScroll = useRef<HTMLDivElement>(null);
+  const addDialog = useRef<HTMLDialogElement>(null);
   const [invite, setInvite] = useState("");
   const [needsInvite, setNeedsInvite] = useState(false);
   const [url, setUrl] = useState("");
   const [matchUrl, setMatchUrl] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addError, setAddError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [realtime, setRealtime] = useState("Menghubungkan realtime…");
@@ -63,6 +66,12 @@ export default function RoomPage() {
   useEffect(() => { void join(); }, [join]);
   useEffect(() => { const timer = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { if (chatScroll.current) chatScroll.current.scrollTop = chatScroll.current.scrollHeight; }, [messages]);
+  useEffect(() => {
+    const dialog = addDialog.current;
+    if (!dialog) return;
+    if (addOpen && !dialog.open) dialog.showModal();
+    if (!addOpen && dialog.open) dialog.close();
+  }, [addOpen]);
 
   useEffect(() => {
     if (!room) return;
@@ -138,11 +147,11 @@ export default function RoomPage() {
   }
 
   async function addTrack(event: React.FormEvent) {
-    event.preventDefault(); setError(""); setBusy(true);
+    event.preventDefault(); setAddError(""); setBusy(true);
     try {
       await api("/rooms/" + encoded + "/queue", "POST", { url, ...(matchUrl ? { matchUrl } : {}) });
-      await reload(); setUrl(""); setMatchUrl("");
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      await reload(); setUrl(""); setMatchUrl(""); setAddOpen(false);
+    } catch (e) { setAddError((e as Error).message); } finally { setBusy(false); }
   }
 
   const state = snapshot?.state;
@@ -195,6 +204,7 @@ export default function RoomPage() {
         <aside className={styles.studioSide}>
           <section className={styles.queuePanel} aria-label="Antrean lagu">
             <div className={styles.sectionHeading}><h3><Music2 size={17} /> Antrean lagu</h3><span>{snapshot?.items.length ?? 0} lagu</span></div>
+            <button className={styles.queueAddButton} disabled={!snapshot?.canAdd} onClick={() => { setAddError(""); setAddOpen(true); }}><Plus size={16} /> Tambah lagu</button>
             {!snapshot?.items.length && <p className={styles.note}>Belum ada lagu di antrean.</p>}
             <div className={styles.queueItems}>{snapshot?.items.map((item, index) =>
               <button key={item.id} disabled={!snapshot.canControl || busy} onClick={() => void command("select", { trackId: item.id })}
@@ -202,11 +212,6 @@ export default function RoomPage() {
                 <span className={styles.queueNumber}>{item.id === current?.id ? "♫" : index + 1}</span>
                 <span><strong>{item.title}</strong><small>{item.artist ?? item.source_provider}</small></span>
               </button>)}</div>
-            <form onSubmit={addTrack} className={styles.addSongForm}>
-              <label>Tautan lagu<input type="url" value={url} onChange={e => setUrl(e.target.value)} required placeholder="YouTube, Spotify, dan lainnya" /></label>
-              <label>Padanan YouTube jika bukan YouTube<input type="url" value={matchUrl} onChange={e => setMatchUrl(e.target.value)} placeholder="Tautan video yang sesuai" /></label>
-              <button disabled={busy || !snapshot?.canAdd}><Plus size={16} /> Tambah ke antrean</button>
-            </form>
           </section>
           <section className={styles.chatPanel} aria-label="Obrolan room">
             <div className={styles.sectionHeading}><h3><MessageCircle size={17} /> Obrolan</h3><span>Room chat</span></div>
@@ -221,6 +226,19 @@ export default function RoomPage() {
           </section>
         </aside>
       </div>
+      <dialog ref={addDialog} className={styles.addDialog} aria-labelledby="add-song-title" onClose={() => setAddOpen(false)} onClick={event => { if (event.target === event.currentTarget) setAddOpen(false); }}>
+        <div className={styles.dialogContent}>
+          <div className={styles.dialogHeader}><div><span className={styles.eyebrow}>SYNORA / ANTREAN</span><h2 id="add-song-title">Tambah lagu</h2></div><button type="button" className={styles.dialogClose} aria-label="Tutup popup" onClick={() => setAddOpen(false)}><X size={20} /></button></div>
+          <p className={styles.dialogDescription}>Tempel tautan lagu yang ingin didengarkan bersama.</p>
+          {addError && <p role="alert" className={styles.error}>{addError}</p>}
+          <form onSubmit={addTrack} className={styles.addSongForm}>
+            <label>Tautan lagu<input type="url" autoFocus value={url} onChange={e => setUrl(e.target.value)} required placeholder="https://www.youtube.com/watch?v=…" /></label>
+            <label><span>Padanan YouTube <span className={styles.optional}>(jika sumbernya bukan YouTube)</span></span><input type="url" value={matchUrl} onChange={e => setMatchUrl(e.target.value)} placeholder="Tautan video YouTube yang sesuai" /></label>
+            <p className={styles.note}>Lagu dari Spotify dan sumber lain membutuhkan padanan YouTube yang kamu pilih.</p>
+            <div className={styles.dialogActions}><button type="button" className={styles.cancelButton} onClick={() => setAddOpen(false)}>Batal</button><button type="submit" className={styles.submitButton} disabled={busy || !snapshot?.canAdd}><Plus size={16} /> {busy ? "Menambahkan…" : "Tambah ke antrean"}</button></div>
+          </form>
+        </div>
+      </dialog>
     </>}
   </main>;
 }
