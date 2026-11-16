@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapIdentity, renameIdentity, authenticate } from "../synora/core/identity-service";
 import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/room-service";
 import { issueSecret } from "../synora/core/identity";
+import { addQueueItem, parseQueueRequest, queueSnapshot } from "../synora/core/queue-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -63,5 +64,19 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     db.prepare("INSERT INTO playlist_items(id,room_id,source_provider,source_external_id,source_url,playback_provider,playback_external_id,playback_url,title,position,added_by,added_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
       .run("track",r1.room.id,"youtube","id","https://example.com","youtube","id","https://example.com","Track",0,a.profile.id,0);
     expect(()=>db.prepare("UPDATE room_playback_states SET current_track_id=? WHERE room_id=?").run("track",r2.room.id)).toThrow();
+  });
+  it("adds a confirmed playable match while preserving its original Spotify source",async()=>{
+    const a=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Match Room"});
+    const parsed=parseQueueRequest({url:"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",matchUrl:"https://www.youtube.com/watch?v=dQw4w9WgXcQ"});
+    const candidate={...parsed,title:"Confirmed match",artist:"Artist",thumbnail:null,durationSeconds:null};
+    const item=await addQueueItem(store,a.cookie,room.room.slug,candidate);
+    expect(item.source_provider).toBe("spotify");
+    expect(item.playback_provider).toBe("youtube");
+    expect((await queueSnapshot(store,a.cookie,room.room.slug)).state).toMatchObject({current_track_id:item.id,status:"paused"});
+    await expect(addQueueItem(store,a.cookie,room.room.slug,candidate)).rejects.toMatchObject({status:409});
+    expect((await queueSnapshot(store,a.cookie,room.room.slug)).items).toHaveLength(1);
+    await expect(queueSnapshot(store,issueSecret().token,room.room.slug)).rejects.toMatchObject({status:401});
+    expect(()=>parseQueueRequest({url:"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"})).toThrowError(/match/);
   });
 });
