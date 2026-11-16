@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Trash2, Users, X } from "lucide-react";
 import type { TokenRequest } from "@ably/pubsub-device";
-import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type Snapshot } from "../../client-api";
+import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type Snapshot, type Track } from "../../client-api";
 import { SyncedPlayer } from "./synced-player";
 import styles from "../../synora.module.css";
 
@@ -24,6 +24,7 @@ export default function RoomPage() {
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const chatScroll = useRef<HTMLDivElement>(null);
+  const queueRequest = useRef(0);
   const addDialog = useRef<HTMLDialogElement>(null);
   const [invite, setInvite] = useState("");
   const [needsInvite, setNeedsInvite] = useState(false);
@@ -37,8 +38,9 @@ export default function RoomPage() {
   const [tick, setTick] = useState(0);
 
   const reload = useCallback(async () => {
+    const requestId = ++queueRequest.current;
     const result = await api<Snapshot>("/rooms/" + encoded + "/queue");
-    setSnapshot({ ...result, receivedAt: Date.now() });
+    if (requestId === queueRequest.current) setSnapshot({ ...result, receivedAt: Date.now() });
   }, [encoded]);
   const reloadSocial = useCallback(async () => {
     const [chat, presence] = await Promise.all([
@@ -119,7 +121,7 @@ export default function RoomPage() {
       } catch (e) { if (!cancelled) setRealtime("Realtime belum terhubung: " + (e as Error).message); }
     })();
     const onFocus = () => { void reload().catch(e => setError((e as Error).message)); void reloadSocial().catch(() => {}); };
-    const fallback = setInterval(() => { void reload().catch(() => {}); void reloadSocial().catch(() => {}); }, 10000);
+    const fallback = setInterval(() => { void reload().catch(() => {}); void reloadSocial().catch(() => {}); }, 30000);
     window.addEventListener("focus", onFocus);
     return () => { cancelled = true; close?.(); clearInterval(fallback); window.removeEventListener("focus", onFocus); };
   }, [room, encoded, reload, reloadSocial]);
@@ -129,8 +131,8 @@ export default function RoomPage() {
     if (!message.trim() || sending) return;
     setSending(true); setError("");
     try {
-      await api("/rooms/" + encoded + "/messages", "POST", {body:message});
-      setMessage(""); await reloadSocial();
+      const result=await api<{message:RoomMessage}>("/rooms/" + encoded + "/messages", "POST", {body:message});
+      setMessage(""); setMessages(previous => previous.some(item=>item.id===result.message.id) ? previous : [...previous,result.message].slice(-50));
     } catch(e) { setError((e as Error).message); }
     finally { setSending(false); }
   }
@@ -141,6 +143,7 @@ export default function RoomPage() {
     setError(""); setBusy(true);
     try {
       const result = await api<{ state: PlaybackState; now: number }>("/rooms/" + encoded + "/playback", "POST", { action, expectedVersion, ...extra });
+      queueRequest.current++;
       setSnapshot(previous => previous ? { ...previous, state: result.state, now: result.now, receivedAt: Date.now() } : previous);
     } catch (e) { setError((e as Error).message); await reload().catch(() => {}); }
     finally { setBusy(false); }
@@ -149,9 +152,46 @@ export default function RoomPage() {
   async function addTrack(event: React.FormEvent) {
     event.preventDefault(); setAddError(""); setBusy(true);
     try {
-      await api("/rooms/" + encoded + "/queue", "POST", { url, ...(matchUrl ? { matchUrl } : {}) });
-      await reload(); setUrl(""); setMatchUrl(""); setAddOpen(false);
+      const result=await api<{item:Track}>("/rooms/" + encoded + "/queue", "POST", { url, ...(matchUrl ? { matchUrl } : {}) });
+      queueRequest.current++;
+      setSnapshot(previous => previous ? {
+        ...previous,
+        items:previous.items.some(item=>item.id===result.item.id) ? previous.items : [...previous.items,result.item],
+        state:previous.state?.current_track_id ? previous.state : previous.state ? {
+          ...previous.state,current_track_id:result.item.id,status:"paused",position_seconds:0,
+          playback_started_at:null,state_version:previous.state.state_version+1,updated_at:Date.now(),
+        } : null,
+      } : previous);
+      setUrl(""); setMatchUrl(""); setAddOpen(false);
     } catch (e) { setAddError((e as Error).message); } finally { setBusy(false); }
+  }
+
+  async function reorder(trackId:string, direction:-1|1) {
+    if (!snapshot || busy) return;
+    const expectedIds=snapshot.items.map(item=>item.id);
+    const from=expectedIds.indexOf(trackId),to=from+direction;
+    if (from<0 || to<0 || to>=expectedIds.length) return;
+    const orderedIds=[...expectedIds];
+    [orderedIds[from],orderedIds[to]]=[orderedIds[to],orderedIds[from]];
+    setBusy(true);setError("");
+    try {
+      const result=await api<{items:Track[]}>("/rooms/"+encoded+"/queue","PATCH",{orderedIds,expectedIds});
+      queueRequest.current++;
+      setSnapshot(previous=>previous?{...previous,items:result.items}:previous);
+    } catch(e) { setError((e as Error).message);await reload().catch(()=>{}); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(trackId:string) {
+    if (!snapshot || busy) return;
+    setBusy(true);setError("");
+    try {
+      const result=await api<{removedId:string;state:PlaybackState|null;now:number}>("/rooms/"+encoded+"/queue","DELETE",{trackId});
+      queueRequest.current++;
+      setSnapshot(previous=>previous?{...previous,items:previous.items.filter(item=>item.id!==result.removedId),
+        state:result.state??previous.state,now:result.now,receivedAt:Date.now()}:previous);
+    } catch(e) { setError((e as Error).message);await reload().catch(()=>{}); }
+    finally { setBusy(false); }
   }
 
   const state = snapshot?.state;
@@ -206,11 +246,19 @@ export default function RoomPage() {
           <button className={styles.queueAddButton} disabled={!snapshot?.canAdd} onClick={() => { setAddError(""); setAddOpen(true); }}><Plus size={16} /> Tambah lagu</button>
           {!snapshot?.items.length && <p className={styles.note}>Belum ada lagu di antrean.</p>}
           <div className={styles.queueItems}>{snapshot?.items.map((item, index) =>
-            <button key={item.id} disabled={!snapshot.canControl || busy} onClick={() => void command("select", { trackId: item.id })}
-              className={item.id === current?.id ? styles.queueActive : styles.queueItem}>
-              <span className={styles.queueNumber}>{item.id === current?.id ? "♫" : index + 1}</span>
-              <span><strong>{item.title}</strong><small>{item.artist ?? item.source_provider}</small></span>
-            </button>)}</div>
+            <div className={styles.queueRow} key={item.id}>
+              <button disabled={!snapshot.canControl || busy} onClick={() => void command("select", { trackId: item.id })}
+                className={item.id === current?.id ? styles.queueActive : styles.queueItem}
+                aria-label={`Putar ${item.title}`}>
+                <span className={styles.queueNumber}>{item.id === current?.id ? "♫" : index + 1}</span>
+                <span><strong>{item.title}</strong><small>{item.artist ?? item.source_provider}</small></span>
+              </button>
+              {snapshot.canManage && <div className={styles.queueActions}>
+                <button type="button" disabled={busy || index===0} onClick={() => void reorder(item.id,-1)} aria-label={`Naikkan ${item.title}`} title="Naikkan"><ArrowUp size={14}/></button>
+                <button type="button" disabled={busy || index===snapshot.items.length-1} onClick={() => void reorder(item.id,1)} aria-label={`Turunkan ${item.title}`} title="Turunkan"><ArrowDown size={14}/></button>
+                <button type="button" disabled={busy} onClick={() => void remove(item.id)} aria-label={`Hapus ${item.title}`} title="Hapus lagu"><Trash2 size={14}/></button>
+              </div>}
+            </div>)}</div>
         </section>
         <section className={styles.chatPanel} aria-label="Obrolan room">
           <div className={styles.sectionHeading}><h3><MessageCircle size={17} /> Obrolan</h3><span>Room chat</span></div>

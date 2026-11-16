@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { controlPlayback } from "../../../../../../synora/core/playback-service";
 import { synoraStore } from "../../../../../../synora/server/database";
 import { apiError, jsonBody, sameOrigin, sessionToken } from "../../../../../../synora/server/http";
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     sameOrigin(request);
     const store = synoraStore();
     const result = await controlPlayback(store, sessionToken(request), (await context.params).slug, await jsonBody(request));
-    await notifyAfterCommit(store, result.roomId);
+    after(() => notifyAfterCommit(store, result.roomId));
     return NextResponse.json({ state:result.state, now:result.now });
   } catch (error) { return apiError(error); }
 }

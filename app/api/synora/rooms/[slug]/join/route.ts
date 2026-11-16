@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { joinRoom } from "../../../../../../synora/core/room-service";
 import { synoraStore } from "../../../../../../synora/server/database";
 import { apiError, jsonBody, sameOrigin, sessionToken } from "../../../../../../synora/server/http";
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     const invite = typeof body === "object" && body !== null && "inviteKey" in body ? body.inviteKey : null;
     const store=synoraStore();
     const room=await joinRoom(store,sessionToken(request),slug,invite);
-    await notifyAfterCommit(store,room.id);
+    after(() => notifyAfterCommit(store,room.id));
     return NextResponse.json({ room });
   } catch (error) { return apiError(error); }
 }

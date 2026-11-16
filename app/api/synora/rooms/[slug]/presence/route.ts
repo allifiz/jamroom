@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { roomListeners, updateRoomPresence } from "../../../../../../synora/core/room-social-service";
 import { synoraStore } from "../../../../../../synora/server/database";
 import { apiError, jsonBody, sameOrigin, sessionToken } from "../../../../../../synora/server/http";
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{slu
     const input = typeof body === "object" && body !== null ? body as Record<string,unknown> : {};
     const store = synoraStore();
     const result = await updateRoomPresence(store,sessionToken(request),(await context.params).slug,input.tabId,input.action === "leave");
-    await notifyAfterCommit(store,result.roomId);
+    after(() => notifyAfterCommit(store,result.roomId));
     return NextResponse.json({ok:true});
   } catch(error) { return apiError(error); }
 }

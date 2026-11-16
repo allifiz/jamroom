@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapIdentity, renameIdentity, authenticate } from "../synora/core/identity-service";
 import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/room-service";
 import { issueSecret } from "../synora/core/identity";
-import { addQueueItem, parseQueueRequest, queueSnapshot } from "../synora/core/queue-service";
+import { addQueueItem, parseQueueRequest, queueSnapshot, removeQueueItem, reorderQueue } from "../synora/core/queue-service";
 import { controlPlayback } from "../synora/core/playback-service";
 import { listRoomMessages, roomListeners, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
@@ -105,6 +105,34 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     const stopped=await controlPlayback(store,a.cookie,slug,{action:"next",expectedVersion:6},14000);
     expect(stopped.state).toMatchObject({current_track_id:null,status:"stopped"});
     expect((await queueSnapshot(store,b.cookie,slug,15000)).state).toMatchObject({status:"stopped",state_version:7});
+  });
+  it("reorders uniquely and removes a playing track without leaving a dangling selection",async()=>{
+    const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Queue Controls"});
+    await joinRoom(store,b.cookie,room.room.slug,null);
+    const ids=["dQw4w9WgXcQ","M7lc1UVf-VE","9bZkp7q19f0"];
+    const tracks=[];
+    for(const id of ids){
+      const source=parseQueueRequest({url:`https://www.youtube.com/watch?v=${id}`});
+      tracks.push(await addQueueItem(store,a.cookie,room.room.slug,{...source,title:id,artist:null,thumbnail:null,durationSeconds:null}));
+    }
+    const slug=room.room.slug;
+    const original=tracks.map(item=>item.id),ordered=[original[2],original[0],original[1]];
+    await expect(reorderQueue(store,b.cookie,slug,{orderedIds:ordered,expectedIds:original})).rejects.toMatchObject({status:403});
+    const changed=await reorderQueue(store,a.cookie,slug,{orderedIds:ordered,expectedIds:original});
+    expect(changed.items.map(item=>item.position)).toEqual([0,1,2]);
+    expect((await queueSnapshot(store,a.cookie,slug)).items.map(item=>item.id)).toEqual(ordered);
+    await expect(reorderQueue(store,a.cookie,slug,{orderedIds:original,expectedIds:original})).rejects.toMatchObject({status:409});
+    await expect(reorderQueue(store,a.cookie,slug,{orderedIds:[original[0],original[0],original[1]],expectedIds:ordered})).rejects.toMatchObject({status:400});
+    await expect(removeQueueItem(store,b.cookie,slug,original[0])).rejects.toMatchObject({status:403});
+    await controlPlayback(store,a.cookie,slug,{action:"play",expectedVersion:1},1000);
+    const removed=await removeQueueItem(store,a.cookie,slug,original[0],2000);
+    expect(removed.state).toMatchObject({current_track_id:original[1],status:"playing",state_version:3,playback_started_at:2000});
+    expect((await queueSnapshot(store,a.cookie,slug,3000)).items.map(item=>item.id)).toEqual([original[2],original[1]]);
+    await expect(removeQueueItem(store,a.cookie,slug,original[0])).rejects.toMatchObject({status:404});
+    await removeQueueItem(store,a.cookie,slug,original[1],4000);
+    const last=await removeQueueItem(store,a.cookie,slug,original[2],5000);
+    expect(last.state).toMatchObject({current_track_id:null,status:"stopped"});
   });
   it("enforces control permission and rejects a selected track from another room",async()=>{
     const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);

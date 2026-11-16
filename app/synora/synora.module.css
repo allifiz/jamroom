@@ -10,3 +10,11 @@
 .messages{flex:1;min-height:0;max-height:none}
 @media(max-width:1100px){.studioGrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);height:auto}.studioCenter{grid-column:1/-1;height:auto}.queuePanel,.chatPanel{height:540px}}
 @media(max-width:700px){.studioGrid{grid-template-columns:minmax(0,1fr)}.studioCenter{grid-column:auto}.queuePanel,.chatPanel{height:500px}}
+.queueRow{display:flex;align-items:center;gap:4px;min-width:0;border-radius:10px}
+.queueRow>.queueItem,.queueRow>.queueActive{flex:1;min-width:0;width:auto}
+.queueRow>.queueItem>span:nth-child(2),.queueRow>.queueActive>span:nth-child(2){min-width:0;overflow:hidden}
+.queueActions{display:flex;flex:none;align-items:center;gap:1px;padding-right:4px}
+.queueActions button{display:grid;place-items:center;width:26px;height:28px;padding:0;border:0;border-radius:7px;background:transparent;color:#cbb8d9;cursor:pointer}
+.queueActions button:hover:not(:disabled){background:#ffffff20;color:#fff}
+.queueActions button:disabled{opacity:.35;cursor:default}
+@media(max-width:420px){.queueActions button{width:24px}}
