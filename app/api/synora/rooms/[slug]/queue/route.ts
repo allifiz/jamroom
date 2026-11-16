@@ -3,6 +3,7 @@ import { addQueueItem, parseQueueRequest, queueSnapshot, requireQueueAdd } from 
 import { synoraStore } from "../../../../../../synora/server/database";
 import { apiError, jsonBody, sameOrigin, sessionToken } from "../../../../../../synora/server/http";
 import { resolveMetadata } from "../../../../../../synora/server/metadata";
+import { notifyAfterCommit } from "../../../../../../synora/server/realtime";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ sl
     await requireQueueAdd(store,sessionToken(request),slug);
     const candidate = await resolveMetadata(parsed);
     const item = await addQueueItem(store,sessionToken(request),slug,candidate);
+    await notifyAfterCommit(store,item.room_id);
     return NextResponse.json({ item },{ status:201 });
   } catch (error) { return apiError(error); }
 }

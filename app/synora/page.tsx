@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { TokenRequest } from "@ably/pubsub-device";
 import styles from "./synora.module.css";
 
 type Profile = { id:string; display_name:string };
@@ -30,6 +31,7 @@ export default function SynoraPreview() {
   const [secrets,setSecrets]=useState<{inviteKey:string;recoveryKey:string}|null>(null);
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [realtime,setRealtime]=useState("Menghubungkan realtime…");
 
   const refreshRooms=useCallback(async()=>setRooms(await api<Rooms>("/rooms")),[]);
   const openRoom=useCallback(async(room:Room)=>{
@@ -50,6 +52,37 @@ export default function SynoraPreview() {
     })();
     return()=>{cancelled=true};
   },[]);
+
+  useEffect(()=>{
+    if(!active)return;
+    let cancelled=false;
+    let close:undefined|(()=>void);
+    const slug=encodeURIComponent(active.slug);
+    const reload=async()=>{
+      try{const next=await api<Snapshot>("/rooms/"+slug+"/queue");if(!cancelled)setSnapshot(next)}
+      catch(e){if(!cancelled)setError((e as Error).message)}
+    };
+    (async()=>{
+      try{
+        const {createClient}=await import("@ably/pubsub-device");
+        if(cancelled)return;
+        const client=createClient({authCallback:async(_params,callback)=>{
+          try{
+            const response=await api<{tokenRequest:TokenRequest}>("/rooms/"+slug+"/realtime","POST");
+            callback(null,response.tokenRequest);
+          }catch(e){callback((e as Error).message,null)}
+        }});
+        close=()=>client.close();
+        const channel=client.channels.get("synora:room:"+active.id);
+        await channel.subscribe(()=>{void reload()});
+        if(!cancelled)setRealtime("Realtime terhubung");
+        else client.close();
+      }catch(e){if(!cancelled)setRealtime("Realtime belum terhubung: "+(e as Error).message)}
+    })();
+    const onFocus=()=>{void reload()};
+    window.addEventListener("focus",onFocus);
+    return()=>{cancelled=true;close?.();window.removeEventListener("focus",onFocus)};
+  },[active]);
 
   async function createRoom(event:React.FormEvent) {
     event.preventDefault();setError("");setBusy(true);
@@ -118,7 +151,7 @@ export default function SynoraPreview() {
       </form>
       <div className={styles.roomList}>{snapshot?.items.map(item=><div key={item.id} className={styles.room}><strong>{item.title}</strong><span>{item.artist} · {item.source_provider} → {item.playback_provider}</span></div>)}</div>
       {current?.playback_provider==="youtube"&&<div className={styles.player}><iframe title={current.title} src={"https://www.youtube-nocookie.com/embed/"+current.playback_external_id} allow="autoplay; encrypted-media; picture-in-picture" allowFullScreen /></div>}
-      <p className={styles.note}>Preview ini belum menyinkronkan pemutaran antarpendengar.</p>
+      <p className={styles.note}>{realtime}. Perubahan antrean akan diperbarui otomatis; kontrol pemutaran bersama masih dalam pengembangan.</p>
     </section>}
   </main>;
 }

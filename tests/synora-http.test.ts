@@ -57,4 +57,24 @@ describe("Synora HTTP boundary backed by real libSQL", () => {
     expect((await (await GET(request("/api/synora/rooms", "GET"))).json()).owned).toHaveLength(1);
     expect((await GET(new NextRequest(origin + "/api/synora/rooms"))).status).toBe(401);
   });
+
+  it("issues a short-lived Ably token only for an accessible room",async()=>{
+    process.env.ABLY_API_KEY="abcd.12345:abcde";
+    const rooms=await import("../app/api/synora/rooms/route");
+    const created=await rooms.POST(request("/api/synora/rooms","POST",{name:"Realtime Test",visibility:"private"}));
+    const {room}=await created.json();
+    const path="/api/synora/rooms/"+room.slug+"/realtime";
+    const {POST}=await import("../app/api/synora/rooms/[slug]/realtime/route");
+    const context={params:Promise.resolve({slug:room.slug})};
+    expect((await POST(new NextRequest(origin+path,{method:"POST",headers:{Origin:origin}}),context)).status).toBe(401);
+    const response=await POST(request(path,"POST"),context);
+    expect(response.status).toBe(200);
+    const data=await response.json();
+    expect(data.channel).toBe("synora:room:"+room.id);
+    expect(data.tokenRequest.clientId).toBeTruthy();
+    expect(data.tokenRequest.ttl).toBe(60_000);
+    expect(JSON.parse(data.tokenRequest.capability)).toEqual({[data.channel]:["presence","subscribe"]});
+    expect(JSON.stringify(data)).not.toContain(process.env.ABLY_API_KEY);
+    delete process.env.ABLY_API_KEY;
+  });
 });

@@ -38,6 +38,11 @@ export async function requireQueueAdd(db: SynoraStore, token: unknown, slug: str
   if (!permissions.add) throw new ServiceError(403,"You cannot add tracks to this room");
 }
 
+export async function realtimeAccess(db: SynoraStore, token: unknown, slug: string, now = Date.now()) {
+  const { user, room, permissions } = await roomAccess(db,slug,token,now);
+  return { clientId:user.id, roomId:room.id, member:permissions.member };
+}
+
 export type QueueCandidate = { source: MusicSource; playback: MusicPlayback; title: string; artist: string | null; thumbnail: string | null; durationSeconds: number | null };
 
 export function parseQueueRequest(input: unknown) {
