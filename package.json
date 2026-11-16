@@ -14,7 +14,8 @@
     "test:sql": "bash scripts/test-sql.sh",
     "format": "prettier --write app components lib tests e2e scripts/*.mjs dev/*.yml .github/workflows/*.yml *.ts *.mjs *.json README.md VALIDATION.md",
     "backend:start": "bash scripts/start-dev-backend.sh",
-    "backend:stop": "docker compose --env-file dev/.env -f dev/compose.yml -p jamroom-dev stop"
+    "backend:stop": "docker compose --env-file dev/.env -f dev/compose.yml -p jamroom-dev stop",
+    "synora:db:init": "node scripts/init-synora-db.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
