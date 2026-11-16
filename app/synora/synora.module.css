@@ -18,3 +18,8 @@
 .queueActions button:hover:not(:disabled){background:#ffffff20;color:#fff}
 .queueActions button:disabled{opacity:.35;cursor:default}
 @media(max-width:420px){.queueActions button{width:24px}}
+.modeControls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 0 3px}
+.modeControls button{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border:1px solid #ffffff30;border-radius:9px;background:#ffffff09;color:#bcb0ca;font-size:.72rem;font-weight:750;cursor:pointer}
+.modeControls button[aria-pressed=true]{border-color:#e8bfeb;background:#e8bfeb24;color:#f5d3f4}
+.modeControls button:hover:not(:disabled){background:#ffffff20}
+.modeControls button:disabled{opacity:.45;cursor:default}

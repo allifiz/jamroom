@@ -52,7 +52,7 @@ export async function queueSnapshot(db: SynoraStore, token: unknown, slug: strin
   const { room, permissions } = await roomAccess(db,slug,token,now);
   const [items, states] = await Promise.all([
     db.query<Item>("SELECT id,room_id,source_provider,source_url,playback_provider,playback_external_id,playback_url,title,artist,thumbnail,duration_seconds,position,added_by,added_at FROM playlist_items WHERE room_id=? ORDER BY position",[room.id]),
-    db.query("SELECT current_track_id,status,position_seconds,playback_started_at,updated_at,state_version FROM room_playback_states WHERE room_id=?",[room.id]),
+    db.query("SELECT current_track_id,status,position_seconds,playback_started_at,updated_at,state_version,shuffle_enabled,repeat_mode FROM room_playback_states WHERE room_id=?",[room.id]),
   ]);
   const [state] = states;
   return { items, state, now, canControl: permissions.control, canAdd: permissions.add, canManage: permissions.manage };
@@ -138,8 +138,8 @@ export async function removeQueueItem(db: SynoraStore, token: unknown, slug: str
     const items = await tx.query<{id:string}>("SELECT id FROM playlist_items WHERE room_id=? ORDER BY position",[room.id]);
     const index = items.findIndex(item => item.id===trackId);
     if (index<0) throw new ServiceError(404,"Track not in this room");
-    const [state] = await tx.query<{current_track_id:string|null;status:string;state_version:number}>(
-      "SELECT current_track_id,status,state_version FROM room_playback_states WHERE room_id=?",[room.id]);
+    const [state] = await tx.query<{current_track_id:string|null;status:string;state_version:number;shuffle_enabled:number;repeat_mode:string}>(
+      "SELECT current_track_id,status,state_version,shuffle_enabled,repeat_mode FROM room_playback_states WHERE room_id=?",[room.id]);
     let playback = null;
     if (state.current_track_id===trackId) {
       const next=items[index+1]?.id ?? items[index-1]?.id ?? null;
@@ -147,7 +147,8 @@ export async function removeQueueItem(db: SynoraStore, token: unknown, slug: str
       const startedAt=status==="playing" ? now : null;
       await tx.execute("UPDATE room_playback_states SET current_track_id=?,status=?,position_seconds=0,playback_started_at=?,updated_at=?,state_version=state_version+1 WHERE room_id=?",
         [next,status,startedAt,now,room.id]);
-      playback={current_track_id:next,status,position_seconds:0,playback_started_at:startedAt,updated_at:now,state_version:state.state_version+1};
+      playback={current_track_id:next,status,position_seconds:0,playback_started_at:startedAt,updated_at:now,
+        state_version:state.state_version+1,shuffle_enabled:state.shuffle_enabled,repeat_mode:state.repeat_mode};
     }
     await tx.execute("DELETE FROM playlist_items WHERE room_id=? AND id=?",[room.id,trackId]);
     await tx.execute("INSERT INTO realtime_outbox(id,room_id,event,created_at) VALUES(?,?,'refresh',?)",[randomUUID(),room.id,now]);

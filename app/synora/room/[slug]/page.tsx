@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Send, SkipForward, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Repeat, Repeat1, Send, Shuffle, SkipBack, SkipForward, Trash2, Users, X } from "lucide-react";
 import type { TokenRequest } from "@ably/pubsub-device";
 import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type RoomView, type Snapshot, type Track } from "../../client-api";
 import { SyncedPlayer } from "./synced-player";
@@ -138,7 +138,7 @@ export default function RoomPage() {
     finally { setSending(false); }
   }
 
-  async function command(action: "play" | "pause" | "next" | "seek" | "select" | "ended", extra: Record<string, unknown> = {}, version?: number) {
+  async function command(action: "play" | "pause" | "next" | "previous" | "seek" | "select" | "ended" | "setRepeat" | "setShuffle", extra: Record<string, unknown> = {}, version?: number) {
     const expectedVersion = version ?? snapshot?.state?.state_version;
     if (expectedVersion === undefined) return;
     setError(""); setBusy(true);
@@ -229,11 +229,22 @@ export default function RoomPage() {
           <div className={styles.songTitle}><span>NOW PLAYING <i>{state?.status === "playing" ? "● LIVE" : "○ JEDA"}</i></span>
             <h2>{current?.title ?? "Belum ada lagu"}</h2><p>{current?.artist ?? "Tambahkan lagu untuk memulai sesi"}</p></div>
           <div className={styles.transport}>
+            <button disabled={!state?.current_track_id || !snapshot?.canControl || busy} onClick={() => void command("previous")} aria-label="Lagu sebelumnya"><SkipBack size={19} fill="currentColor" /></button>
             <button className={styles.playControl} disabled={!snapshot?.items.length || !snapshot?.canControl || busy} onClick={() => void command(state?.status === "playing" ? "pause" : "play")} aria-label={state?.status === "playing" ? "Jeda" : "Putar"}>{state?.status === "playing" ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}</button>
-            <button disabled={!next || !snapshot?.canControl || busy} onClick={() => void command("next")} aria-label="Lagu berikutnya"><SkipForward size={19} fill="currentColor" /></button>
+            <button disabled={!state?.current_track_id || (!next && (snapshot?.items.length ?? 0)<2 && state.repeat_mode!=="playlist") || !snapshot?.canControl || busy} onClick={() => void command("next")} aria-label="Lagu berikutnya"><SkipForward size={19} fill="currentColor" /></button>
             <span>{clock(position)}</span><div className={styles.progress}><i style={{width:current?.duration_seconds ? `${Math.min(100,position / current.duration_seconds * 100)}%` : "0%"}} /></div>
             <button disabled={!state?.current_track_id || !snapshot?.canControl || busy} onClick={() => void command("seek", { positionSeconds: Math.max(0, position - 10) })} aria-label="Mundur 10 detik">−10</button>
             <button disabled={!state?.current_track_id || !snapshot?.canControl || busy} onClick={() => void command("seek", { positionSeconds: Math.min(43200, position + 10) })} aria-label="Maju 10 detik">+10</button>
+          </div>
+          <div className={styles.modeControls} aria-label="Mode pemutaran">
+            <button type="button" aria-pressed={!!state?.shuffle_enabled} disabled={!snapshot?.canControl || busy} onClick={() => void command("setShuffle",{enabled:!state?.shuffle_enabled})}>
+              <Shuffle size={16}/> Acak {state?.shuffle_enabled ? "aktif" : "nonaktif"}
+            </button>
+            <button type="button" aria-pressed={!!state && state.repeat_mode!=="off"} disabled={!snapshot?.canControl || busy}
+              onClick={() => void command("setRepeat",{repeatMode:state?.repeat_mode==="off" ? "playlist" : state?.repeat_mode==="playlist" ? "song" : "off"})}>
+              {state?.repeat_mode==="song" ? <Repeat1 size={16}/> : <Repeat size={16}/>}
+              {state?.repeat_mode==="song" ? "Ulang lagu" : state?.repeat_mode==="playlist" ? "Ulang antrean" : "Ulang nonaktif"}
+            </button>
           </div>
           <div className={styles.roster}>
             <div className={styles.sectionHeading}><h3><Users size={17} /> Di ruang ini</h3><span>{listeners.length} online</span></div>

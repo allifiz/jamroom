@@ -5,7 +5,7 @@ import { bootstrapIdentity, renameIdentity, authenticate } from "../synora/core/
 import { createRoom, joinRoom, listRooms, recoverRoom } from "../synora/core/room-service";
 import { issueSecret } from "../synora/core/identity";
 import { addQueueItem, parseQueueRequest, queueSnapshot, removeQueueItem, reorderQueue } from "../synora/core/queue-service";
-import { controlPlayback } from "../synora/core/playback-service";
+import { controlPlayback, playOrder } from "../synora/core/playback-service";
 import { listRoomMessages, roomListeners, roomView, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
@@ -143,7 +143,57 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     const candidate=parseQueueRequest({url:"https://www.youtube.com/watch?v=dQw4w9WgXcQ"});
     const item=await addQueueItem(store,a.cookie,other.room.slug,{...candidate,title:"Other track",artist:null,thumbnail:null,durationSeconds:null});
     await expect(controlPlayback(store,b.cookie,room.room.slug,{action:"play",expectedVersion:0})).rejects.toMatchObject({status:403});
+    await expect(controlPlayback(store,b.cookie,room.room.slug,{action:"setRepeat",expectedVersion:0,repeatMode:"playlist"})).rejects.toMatchObject({status:403});
     await expect(controlPlayback(store,a.cookie,room.room.slug,{action:"select",expectedVersion:0,trackId:item.id})).rejects.toMatchObject({status:404});
+  });
+  it("repeats a song on end, wraps the queue, and keeps manual next and previous predictable",async()=>{
+    const a=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Repeat Room"});
+    const ids=["dQw4w9WgXcQ","M7lc1UVf-VE","9bZkp7q19f0"];
+    const tracks=[];
+    for(const id of ids){
+      const source=parseQueueRequest({url:`https://www.youtube.com/watch?v=${id}`});
+      tracks.push(await addQueueItem(store,a.cookie,room.room.slug,{...source,title:id,artist:null,thumbnail:null,durationSeconds:null},1000));
+    }
+    const slug=room.room.slug;
+    await controlPlayback(store,a.cookie,slug,{action:"play",expectedVersion:1},2000);
+    const repeat=await controlPlayback(store,a.cookie,slug,{action:"setRepeat",expectedVersion:2,repeatMode:"playlist"},3000);
+    expect(repeat.state).toMatchObject({repeat_mode:"playlist",status:"playing",position_seconds:1});
+    await controlPlayback(store,a.cookie,slug,{action:"select",expectedVersion:3,trackId:tracks[2].id},4000);
+    const wrapped=await controlPlayback(store,a.cookie,slug,{action:"ended",expectedVersion:4,trackId:tracks[2].id},5000);
+    expect(wrapped.state).toMatchObject({current_track_id:tracks[0].id,status:"playing",state_version:5});
+    await controlPlayback(store,a.cookie,slug,{action:"setRepeat",expectedVersion:5,repeatMode:"song"},6000);
+    const again=await controlPlayback(store,a.cookie,slug,{action:"ended",expectedVersion:6,trackId:tracks[0].id},7000);
+    expect(again.state).toMatchObject({current_track_id:tracks[0].id,status:"playing",position_seconds:0});
+    await expect(controlPlayback(store,a.cookie,slug,{action:"ended",expectedVersion:7,trackId:tracks[2].id},8000)).rejects.toMatchObject({status:409});
+    const manuallyNext=await controlPlayback(store,a.cookie,slug,{action:"next",expectedVersion:7},8000);
+    expect(manuallyNext.state.current_track_id).toBe(tracks[1].id);
+    const restarted=await controlPlayback(store,a.cookie,slug,{action:"previous",expectedVersion:8},13000);
+    expect(restarted.state.current_track_id).toBe(tracks[1].id);
+    expect(restarted.state.position_seconds).toBe(0);
+    const previous=await controlPlayback(store,a.cookie,slug,{action:"previous",expectedVersion:9},14000);
+    expect(previous.state.current_track_id).toBe(tracks[0].id);
+    expect((await queueSnapshot(store,a.cookie,slug)).state).toMatchObject({repeat_mode:"song",state_version:10});
+  });
+  it("shuffles through every song once and stops when repeat is off",async()=>{
+    const a=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,a.cookie,{name:"Shuffle Room"});
+    const tracks=[];
+    for(const id of ["dQw4w9WgXcQ","M7lc1UVf-VE","9bZkp7q19f0"]){
+      const source=parseQueueRequest({url:`https://www.youtube.com/watch?v=${id}`});
+      tracks.push(await addQueueItem(store,a.cookie,room.room.slug,{...source,title:id,artist:null,thumbnail:null,durationSeconds:null}));
+    }
+    const slug=room.room.slug;
+    const order=playOrder(tracks,room.room.id,true).map(item=>item.id);
+    const toggled=await controlPlayback(store,a.cookie,slug,{action:"setShuffle",expectedVersion:1,enabled:true});
+    expect(toggled.state.shuffle_enabled).toBe(1);
+    await controlPlayback(store,a.cookie,slug,{action:"select",expectedVersion:2,trackId:order[0]});
+    await controlPlayback(store,a.cookie,slug,{action:"play",expectedVersion:3});
+    const second=await controlPlayback(store,a.cookie,slug,{action:"next",expectedVersion:4});
+    const third=await controlPlayback(store,a.cookie,slug,{action:"next",expectedVersion:5});
+    expect([order[0],second.state.current_track_id,third.state.current_track_id]).toEqual(order);
+    const stopped=await controlPlayback(store,a.cookie,slug,{action:"ended",expectedVersion:6,trackId:order[2]});
+    expect(stopped.state).toMatchObject({current_track_id:null,status:"stopped",shuffle_enabled:1,repeat_mode:"off"});
   });
   it("persists chat, checks membership, and tracks separate browser tabs",async()=>{
     const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);
