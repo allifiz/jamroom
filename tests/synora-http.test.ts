@@ -7,19 +7,23 @@ import { sameOrigin } from "../synora/server/http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/server", async importOriginal => ({
+  ...await importOriginal<typeof import("next/server")>(),
+  after:vi.fn(),
+}));
 
 const dir = mkdtempSync(join(tmpdir(), "synora-api-"));
 process.env.TURSO_DATABASE_URL = "file:" + join(dir, "test.db");
 const origin = "http://localhost:3000";
 let cookie = "";
 
-function request(path: string, method: string, body?: unknown, requestOrigin = origin) {
+function request(path: string, method: string, body?: unknown, requestOrigin = origin, sessionCookie = cookie) {
   return new NextRequest(origin + path, {
     method,
     headers: {
       ...(method !== "GET" ? { Origin: requestOrigin } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(cookie ? { Cookie: cookie } : {}),
+      ...(sessionCookie ? { Cookie: sessionCookie } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
@@ -103,5 +107,31 @@ describe("Synora HTTP boundary backed by real libSQL", () => {
     expect(JSON.parse(data.tokenRequest.capability)).toEqual({[data.channel]:["presence","subscribe"]});
     expect(JSON.stringify(data)).not.toContain(process.env.ABLY_API_KEY);
     delete process.env.ABLY_API_KEY;
+  });
+  it("guards room management routes and never exposes invite hashes",async()=>{
+    const rooms=await import("../app/api/synora/rooms/route");
+    const session=await import("../app/api/synora/session/route");
+    const settings=await import("../app/api/synora/rooms/[slug]/settings/route");
+    const members=await import("../app/api/synora/rooms/[slug]/members/route");
+    const invites=await import("../app/api/synora/rooms/[slug]/invite/route");
+    const created=await rooms.POST(request("/api/synora/rooms","POST",{name:"Manage Test",visibility:"private"}));
+    const {room,inviteKey}=await created.json();
+    const guestSession=await session.POST(request("/api/synora/session","POST",undefined,origin,""));
+    const guestCookie=guestSession.headers.get("set-cookie")!.split(";")[0];
+    const context={params:Promise.resolve({slug:room.slug})};
+    const base="/api/synora/rooms/"+room.slug;
+    expect((await members.GET(request(base+"/members","GET",undefined,origin,guestCookie),context)).status).toBe(404);
+    expect((await settings.PATCH(request(base+"/settings","PATCH",{allow_add:false},"https://evil.example"),context)).status).toBe(403);
+    const changed=await settings.PATCH(request(base+"/settings","PATCH",{allow_add:false}),context);
+    expect(changed.status).toBe(200);
+    const list=await members.GET(request(base+"/members","GET"),context);
+    expect((await list.json()).ownerId).toBe(room.owner_id);
+    const rotated=await invites.POST(request(base+"/invite","POST"),context);
+    expect(rotated.status).toBe(200);
+    expect(rotated.headers.get("cache-control")).toBe("no-store");
+    const newKey=(await rotated.json()).inviteKey;
+    expect(newKey).not.toBe(inviteKey);
+    expect(JSON.stringify(await (await rooms.GET(request("/api/synora/rooms","GET"))).json())).not.toContain(newKey);
+    expect((await invites.POST(request(base+"/invite","POST",undefined,origin,guestCookie),context)).status).toBe(404);
   });
 });
