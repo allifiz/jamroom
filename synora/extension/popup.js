@@ -26,14 +26,14 @@ function updateSource() {
 }
 async function call(path,body,token) {
   const response=await fetch(ORIGIN+"/api/synora/extension/"+path,{
-    method:"POST",credentials:"include",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:JSON.stringify(body),
+    method:"POST",credentials:"include",headers:{"Content-Type":"application/json","X-Synora-Extension-Id":chrome.runtime.id,...(token?{Authorization:"Bearer "+token}:{})},body:JSON.stringify(body),
   });
   const data=await response.json();
   if(!response.ok)throw Object.assign(new Error(data.error||"Permintaan gagal"),{status:response.status});
   return data;
 }
 async function rooms(token) {
-  const response=await fetch(ORIGIN+"/api/synora/extension/session",{credentials:"include",headers:{Authorization:"Bearer "+token}});
+  const response=await fetch(ORIGIN+"/api/synora/extension/session",{credentials:"include",headers:{"X-Synora-Extension-Id":chrome.runtime.id,Authorization:"Bearer "+token}});
   const data=await response.json();
   if(!response.ok)throw Object.assign(new Error(data.error||"Koneksi berakhir"),{status:response.status});
   return data;
@@ -114,7 +114,7 @@ $("send").addEventListener("submit",async event=>{
   finally {$("submit").disabled=false;}
 });
 $("disconnect").addEventListener("click",async()=>{
-  try {await fetch(ORIGIN+"/api/synora/extension/session",{method:"DELETE",credentials:"include",headers:{Authorization:"Bearer "+current.token}});}
+  try {await fetch(ORIGIN+"/api/synora/extension/session",{method:"DELETE",credentials:"include",headers:{"X-Synora-Extension-Id":chrome.runtime.id,Authorization:"Bearer "+current.token}});}
   finally {await chrome.storage.local.remove(["token","expiresAt","pending"]);current={};$("send").hidden=true;$("pair").hidden=false;status("Koneksi diputus.");}
 });
 void init().catch(error=>status(error.message,"error"));

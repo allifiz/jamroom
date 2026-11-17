@@ -5,8 +5,15 @@ import { apiError } from "./http";
 
 export function extensionOrigin(request:NextRequest) {
   const origin=request.headers.get("origin");
-  if(!origin||!/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) throw new ServiceError(403,"Extension origin required");
-  return origin;
+  const id=request.headers.get("x-synora-extension-id");
+  // Chrome/Edge extension fetches may omit Origin when host_permissions grants
+  // cross-origin access. The explicit ID only identifies the caller; pairing
+  // still needs website approval and privileged actions require a bearer token.
+  if(origin && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) throw new ServiceError(403,"Extension origin required");
+  if(id && !/^[a-p]{32}$/.test(id)) throw new ServiceError(403,"Invalid extension ID");
+  if(origin && id && origin!==`chrome-extension://${id}`) throw new ServiceError(403,"Extension origin mismatch");
+  if(!origin&&!id) throw new ServiceError(403,"Extension origin required");
+  return origin??`chrome-extension://${id}`;
 }
 export function extensionToken(request:NextRequest) {
   const authorization=request.headers.get("authorization");
@@ -25,5 +32,5 @@ export function extensionError(request:NextRequest,error:unknown) {
 }
 export function extensionOptions(request:NextRequest) {
   const origin=extensionOrigin(request);
-  return new NextResponse(null,{status:204,headers:{"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Credentials":"true","Access-Control-Allow-Methods":"GET,POST,DELETE,OPTIONS","Access-Control-Allow-Headers":"Authorization,Content-Type","Access-Control-Max-Age":"600","Vary":"Origin"}});
+  return new NextResponse(null,{status:204,headers:{"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Credentials":"true","Access-Control-Allow-Methods":"GET,POST,DELETE,OPTIONS","Access-Control-Allow-Headers":"Authorization,Content-Type,X-Synora-Extension-Id","Access-Control-Max-Age":"600","Vary":"Origin"}});
 }
