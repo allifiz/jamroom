@@ -8,6 +8,8 @@ import { addQueueItem, parseQueueRequest, queueSnapshot, removeQueueItem, reorde
 import { controlPlayback, playOrder } from "../synora/core/playback-service";
 import { listRoomMessages, roomListeners, roomView, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
 import { changeMemberRole, listRoomMembers, moderateRoomMember, rotateRoomInvite, updateRoomSettings } from "../synora/core/room-management-service";
+import { approveExtensionPairing, authenticateExtension, claimExtensionPairing, revokeExtension, startExtensionPairing } from "../synora/core/extension-service";
+import { hashSecret } from "../synora/core/identity";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -28,6 +30,35 @@ beforeEach(()=>{
 afterEach(()=>db.close());
 
 describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
+  it("pairs an extension only after website approval, then revokes its scoped token",async()=>{
+    const owner=await bootstrapIdentity(store,null),verifier=issueSecret().token;
+    const pairing=await startExtensionPairing(store,hashSecret(verifier));
+    expect(await claimExtensionPairing(store,pairing.code,verifier)).toEqual({pending:true});
+    await expect(claimExtensionPairing(store,pairing.code,issueSecret().token)).rejects.toMatchObject({status:410});
+    await approveExtensionPairing(store,owner.cookie,pairing.code);
+    const claimed=await claimExtensionPairing(store,pairing.code,verifier);
+    expect(claimed.pending).toBe(false);
+    if(claimed.pending)throw new Error("Pairing not claimed");
+    expect((await authenticateExtension(store,claimed.token)).id).toBe(owner.profile.id);
+    await expect(claimExtensionPairing(store,pairing.code,verifier)).rejects.toMatchObject({status:410});
+    await revokeExtension(store,claimed.token);
+    await expect(authenticateExtension(store,claimed.token)).rejects.toMatchObject({status:401});
+  });
+  it("applies room membership and bans to extension queue actions",async()=>{
+    const host=await bootstrapIdentity(store,null),guest=await bootstrapIdentity(store,null);
+    const room=await createRoom(store,host.cookie,{name:"Extension Room"});
+    const verifier=issueSecret().token,pair=await startExtensionPairing(store,hashSecret(verifier));
+    await approveExtensionPairing(store,guest.cookie,pair.code);
+    const claimed=await claimExtensionPairing(store,pair.code,verifier);
+    if(claimed.pending)throw new Error("Pairing not claimed");
+    const source=parseQueueRequest({url:"https://youtu.be/dQw4w9WgXcQ"});
+    const candidate={...source,title:"Extension track",artist:null,thumbnail:null,durationSeconds:null};
+    await expect(addQueueItem(store,claimed.token,room.room.slug,candidate,Date.now(),"extension")).rejects.toMatchObject({status:403});
+    await joinRoom(store,guest.cookie,room.room.slug,null);
+    await addQueueItem(store,claimed.token,room.room.slug,candidate,Date.now(),"extension");
+    await moderateRoomMember(store,host.cookie,room.room.slug,{userId:guest.profile.id,action:"ban"});
+    await expect(addQueueItem(store,claimed.token,room.room.slug,{...candidate,title:"Again"},Date.now(),"extension")).rejects.toMatchObject({status:404});
+  });
   it("updates room permissions and enforces owner, admin, and member boundaries",async()=>{
     const owner=await bootstrapIdentity(store,null),admin=await bootstrapIdentity(store,null),guest=await bootstrapIdentity(store,null);
     const created=await createRoom(store,owner.cookie,{name:"Controls"});
@@ -120,6 +151,8 @@ describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
     expect((await queueSnapshot(store,a.cookie,room.room.slug)).items).toHaveLength(1);
     await expect(queueSnapshot(store,issueSecret().token,room.room.slug)).rejects.toMatchObject({status:401});
     expect(()=>parseQueueRequest({url:"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"})).toThrowError(/match/);
+    const soundcloud=parseQueueRequest({url:"https://soundcloud.com/artist/track",matchUrl:"https://youtu.be/dQw4w9WgXcQ"});
+    expect(soundcloud).toMatchObject({source:{provider:"soundcloud"},playback:{provider:"youtube"}});
   });
   it("synchronizes playback through versioned transactions and advances on track end",async()=>{
     const a=await bootstrapIdentity(store,null),b=await bootstrapIdentity(store,null);

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { hashSecret, roomPermissions, validSecret } from "./identity";
 import { authenticate, ServiceError } from "./identity-service";
+import { authenticateExtension } from "./extension-service";
 import { parseMusicSource, playbackCandidate, type MusicPlayback, type MusicSource } from "./music";
 import type { SqlExecutor, SynoraStore } from "./store";
 
@@ -20,21 +21,23 @@ type Item = {
   thumbnail: string | null; duration_seconds: number | null; position: number; added_by: string; added_at: number;
 };
 
-export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: number) {
+export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, now: number, kind:"browser"|"extension"="browser") {
   if (!validSecret(token)) throw new ServiceError(401,"Session required");
+  const sessionTable=kind==="extension"?"extension_sessions":"sessions";
   const [row]=await tx.query<AccessRow>(
     `SELECT p.id AS user_id,p.display_name,p.avatar_seed,p.avatar_url,
       r.id AS room_id,r.owner_id,r.slug,r.name,r.description,r.cover,r.visibility,r.allow_add,r.allow_manage,r.allow_control,
       m.role,m.can_manage AS member_can_manage,m.can_control AS member_can_control,
       b.room_id AS restriction_room_id,b.expires_at
-     FROM sessions s JOIN profiles p ON p.id=s.user_id
+     FROM ${sessionTable} s JOIN profiles p ON p.id=s.user_id
      CROSS JOIN rooms r
      LEFT JOIN room_members m ON m.room_id=r.id AND m.user_id=p.id
      LEFT JOIN room_restrictions b ON b.room_id=r.id AND b.user_id=p.id
      WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND r.slug=?`,
     [hashSecret(token),now,slug]);
   if (!row) {
-    await authenticate(tx,token,now);
+    if(kind==="extension") await authenticateExtension(tx,token,now);
+    else await authenticate(tx,token,now);
     throw new ServiceError(404,"Room unavailable");
   }
   const user={id:row.user_id,display_name:row.display_name,avatar_seed:row.avatar_seed,avatar_url:row.avatar_url};
@@ -58,8 +61,8 @@ export async function queueSnapshot(db: SynoraStore, token: unknown, slug: strin
   return { items, state, now, canControl: permissions.control, canAdd: permissions.add, canManage: permissions.manage };
 }
 
-export async function requireQueueAdd(db: SynoraStore, token: unknown, slug: string, now = Date.now()) {
-  const { permissions } = await roomAccess(db,slug,token,now);
+export async function requireQueueAdd(db: SynoraStore, token: unknown, slug: string, now = Date.now(), kind:"browser"|"extension"="browser") {
+  const { permissions } = await roomAccess(db,slug,token,now,kind);
   if (!permissions.add) throw new ServiceError(403,"You cannot add tracks to this room");
 }
 
@@ -75,7 +78,9 @@ export function parseQueueRequest(input: unknown) {
   const payload = input as Record<string,unknown>;
   const source = typeof payload.url === "string" ? parseMusicSource(payload.url) : null;
   if (!source) throw new ServiceError(400,"Unsupported music URL");
-  let playback = playbackCandidate(source);
+  // SoundCloud's own widget is not wired yet, so its source also needs a
+  // user-confirmed YouTube match for the current shared player.
+  let playback = source.provider === "soundcloud" ? null : playbackCandidate(source);
   if (!playback && typeof payload.matchUrl === "string") {
     const match = parseMusicSource(payload.matchUrl);
     if (match?.provider === "youtube" || match?.provider === "youtube-music") playback = playbackCandidate(match);
@@ -84,10 +89,10 @@ export function parseQueueRequest(input: unknown) {
   return { source, playback };
 }
 
-export async function addQueueItem(db: SynoraStore, token: unknown, slug: string, candidate: QueueCandidate, now = Date.now()) {
+export async function addQueueItem(db: SynoraStore, token: unknown, slug: string, candidate: QueueCandidate, now = Date.now(), kind:"browser"|"extension"="browser") {
   if (!candidate.title.trim() || candidate.title.length > 200) throw new ServiceError(400,"Invalid title");
   return db.write(async tx => {
-    const { user, room, permissions } = await roomAccess(tx,slug,token,now);
+    const { user, room, permissions } = await roomAccess(tx,slug,token,now,kind);
     if (!permissions.add) throw new ServiceError(403,"You cannot add tracks to this room");
     const id = randomUUID();
     const [max] = await tx.query<{ position: number }>("SELECT COALESCE(MAX(position),-1)+1 AS position FROM playlist_items WHERE room_id=?",[room.id]);

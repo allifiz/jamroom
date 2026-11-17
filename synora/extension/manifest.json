@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Synora — Kirim ke Room",
+  "version": "0.1.0",
+  "description": "Kirim tautan lagu dari tab aktif ke antrean room Synora.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://jamroom-git-v2-syren1.vercel.app/*"],
+  "action": {
+    "default_title": "Kirim lagu ke Synora",
+    "default_popup": "popup.html"
+  }
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="id">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synora</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <header><span class="logo">✳</span><div><strong>synora</strong><small>Kirim ke room</small></div></header>
+  <main>
+    <p id="status" role="status">Memeriksa koneksi…</p>
+    <div id="pair" hidden>
+      <p>Hubungkan extension ke profil Synora yang ada di browser ini.</p>
+      <p id="code" class="code" hidden></p>
+      <button type="button" id="connect">Hubungkan ke Synora ↗</button>
+      <button type="button" id="retry" class="secondary" hidden>Cek persetujuan</button>
+    </div>
+    <form id="send" hidden>
+      <label>Room<select id="room" required></select></label>
+      <label>Tautan lagu<input id="url" type="url" placeholder="https://…" required></label>
+      <label id="matchWrap" hidden>Padanan YouTube<input id="match" type="url" placeholder="Tautan YouTube yang sesuai"></label>
+      <p id="hint" class="hint"></p>
+      <button type="submit" id="submit">Tambah ke antrean</button>
+      <button type="button" class="secondary" id="disconnect">Putuskan koneksi</button>
+    </form>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

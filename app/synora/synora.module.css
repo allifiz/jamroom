@@ -45,3 +45,4 @@
 .settingsSection .memberRow button{border-color:#ffffff35;background:#ffffff0a;color:#f2e8f7;padding:8px}
 .settingsSection .memberRow button:hover:not(:disabled){background:#ffffff20}
 @media(max-width:580px){.memberRow{align-items:flex-start;flex-direction:column}.memberActions{justify-content:flex-start}.inviteBox{flex-direction:column}}
+.pairCode{display:inline-block;padding:14px 18px;border:1px solid #d0a7e4;border-radius:11px;background:#392b4c;color:#f4d1ed!important;font-size:1.25rem;font-weight:900;letter-spacing:.08em;overflow-wrap:anywhere}

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { sameOrigin } from "../synora/server/http";
+import { hashSecret, issueSecret } from "../synora/core/identity";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -133,5 +134,43 @@ describe("Synora HTTP boundary backed by real libSQL", () => {
     expect(newKey).not.toBe(inviteKey);
     expect(JSON.stringify(await (await rooms.GET(request("/api/synora/rooms","GET"))).json())).not.toContain(newKey);
     expect((await invites.POST(request(base+"/invite","POST",undefined,origin,guestCookie),context)).status).toBe(404);
+  });
+  it("pairs an extension through the website and checks CORS and bearer access",async()=>{
+    const pair=await import("../app/api/synora/extension/pair/route");
+    const approve=await import("../app/api/synora/extension/approve/route");
+    const extensionSession=await import("../app/api/synora/extension/session/route");
+    const extOrigin="chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+    const ext=(path:string,method:string,body?:unknown,token?:string)=>new NextRequest(origin+path,{
+      method,headers:{Origin:extOrigin,...(body!==undefined?{"Content-Type":"application/json"}:{}),...(token?{Authorization:"Bearer "+token}:{})},
+      ...(body!==undefined?{body:JSON.stringify(body)}:{}),
+    });
+    const path="/api/synora/extension/pair";
+    expect((await pair.OPTIONS(ext(path,"OPTIONS"))).headers.get("access-control-allow-origin")).toBe(extOrigin);
+    expect((await pair.POST(request(path,"POST",{action:"start",verifierHash:hashSecret(issueSecret().token)}))).status).toBe(403);
+    const verifier=issueSecret().token;
+    const started=await pair.POST(ext(path,"POST",{action:"start",verifierHash:hashSecret(verifier)}));
+    expect(started.status).toBe(200);
+    const {code}=await started.json();
+    expect((await approve.POST(request("/api/synora/extension/approve","POST",{code}))).status).toBe(200);
+    const claimed=await pair.POST(ext(path,"POST",{action:"claim",code,verifier}));
+    const {token}=await claimed.json();
+    expect(token).toMatch(/^[\w-]{43}$/);
+    const sessionPath="/api/synora/extension/session";
+    expect((await extensionSession.GET(ext(sessionPath,"GET",undefined,token))).status).toBe(200);
+    expect((await extensionSession.GET(ext(sessionPath,"GET"))).status).toBe(401);
+    const rooms=await import("../app/api/synora/rooms/route");
+    const created=await rooms.POST(request("/api/synora/rooms","POST",{name:"Extension HTTP Test"}));
+    const {room}=await created.json();
+    const queue=await import("../app/api/synora/extension/queue/route");
+    const track={slug:room.slug,url:"https://www.youtube.com/watch?v=dQw4w9WgXcQ"};
+    expect((await queue.POST(ext("/api/synora/extension/queue","POST",track))).status).toBe(401);
+    vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({title:"Matched song",author_name:"Artist"}),{status:200})));
+    try {
+      const added=await queue.POST(ext("/api/synora/extension/queue","POST",track,token));
+      expect(added.status).toBe(201);
+      expect(await added.json()).toMatchObject({item:{title:"Matched song",room_id:room.id}});
+    } finally { vi.unstubAllGlobals(); }
+    expect((await extensionSession.DELETE(ext(sessionPath,"DELETE",undefined,token))).status).toBe(200);
+    expect((await extensionSession.GET(ext(sessionPath,"GET",undefined,token))).status).toBe(401);
   });
 });
