@@ -23,3 +23,25 @@
 .modeControls button[aria-pressed=true]{border-color:#e8bfeb;background:#e8bfeb24;color:#f5d3f4}
 .modeControls button:hover:not(:disabled){background:#ffffff20}
 .modeControls button:disabled{opacity:.45;cursor:default}
+.settingsDialog{width:min(720px,calc(100% - 28px))}
+.settingsForm{display:grid;gap:14px;margin-top:23px}
+.settingsForm>label{display:grid;gap:7px;font-size:.83rem;font-weight:750}
+.settingsForm input:not([type=checkbox]),.settingsForm textarea,.settingsForm select,.inviteBox input,.memberActions select{width:100%;min-width:0;padding:11px;border:1px solid #ffffff3d;border-radius:9px;background:#2c2d45;color:#f7f2ff;font:inherit}
+.settingsForm textarea{min-height:72px;resize:vertical}
+.permissionFields{display:grid;gap:10px;border:1px solid #ffffff24;border-radius:11px;padding:14px;font-size:.82rem}
+.permissionFields legend{padding:0 6px;font-weight:800}
+.permissionFields label{display:flex;align-items:center;gap:9px;cursor:pointer}
+.permissionFields input{accent-color:#e9b7e8;width:17px;height:17px}
+.settingsForm>.submitButton,.settingsSection button{display:inline-flex;align-items:center;justify-content:center;gap:6px;justify-self:start;border:1px solid #d9b6e8;border-radius:9px;padding:9px 13px;background:#edc6ef;color:#261d38;font-size:.78rem;font-weight:800;cursor:pointer}
+.settingsForm button:disabled,.settingsSection button:disabled{opacity:.45;cursor:default}
+.settingsSection{border-top:1px solid #ffffff25;margin-top:24px;padding-top:18px}
+.settingsSection h3{font-size:1.04rem;margin:0 0 9px}
+.settingsSection h4{font-size:.84rem;margin:18px 0 6px;color:#dbc4e7}
+.settingsSection .cancelButton{background:#ffffff0a;color:#f1e8f6}
+.inviteBox{display:flex;gap:8px;margin-top:11px}.inviteBox input{flex:1;font-size:.72rem}
+.memberRow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #ffffff1c;font-size:.8rem}
+.memberRow>div:first-child{min-width:0}.memberRow strong{display:block;overflow:hidden;text-overflow:ellipsis}.memberRow small{display:block;color:#b8aac7;margin-top:3px}
+.memberActions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:5px}.memberActions select{width:auto;font-size:.75rem;padding:7px}
+.settingsSection .memberRow button{border-color:#ffffff35;background:#ffffff0a;color:#f2e8f7;padding:8px}
+.settingsSection .memberRow button:hover:not(:disabled){background:#ffffff20}
+@media(max-width:580px){.memberRow{align-items:flex-start;flex-direction:column}.memberActions{justify-content:flex-start}.inviteBox{flex-direction:column}}

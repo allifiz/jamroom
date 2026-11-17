@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Repeat, Repeat1, Send, Shuffle, SkipBack, SkipForward, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Headphones, MessageCircle, Music2, Pause, Play, Plus, Repeat, Repeat1, Send, Settings2, Shuffle, SkipBack, SkipForward, Trash2, Users, X } from "lucide-react";
 import type { TokenRequest } from "@ably/pubsub-device";
-import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMessage, type RoomView, type Snapshot, type Track } from "../../client-api";
+import { api, roomPath, type Listener, type PlaybackState, type Profile, type Room, type RoomMembers, type RoomMessage, type RoomView, type Snapshot, type Track } from "../../client-api";
 import { SyncedPlayer } from "./synced-player";
 import styles from "../../synora.module.css";
 
@@ -26,6 +26,14 @@ export default function RoomPage() {
   const chatScroll = useRef<HTMLDivElement>(null);
   const queueRequest = useRef(0);
   const addDialog = useRef<HTMLDialogElement>(null);
+  const settingsDialog = useRef<HTMLDialogElement>(null);
+  const [settingsOpen,setSettingsOpen]=useState(false);
+  const [settingsError,setSettingsError]=useState("");
+  const [settingsBusy,setSettingsBusy]=useState(false);
+  const [members,setMembers]=useState<RoomMembers|null>(null);
+  const [settings,setSettings]=useState({name:"",description:"",visibility:"public" as "public"|"private",allow_add:true,allow_manage:false,allow_control:true});
+  const [canConfigure,setCanConfigure]=useState(false);
+  const [inviteLink,setInviteLink]=useState("");
   const [invite, setInvite] = useState("");
   const [needsInvite, setNeedsInvite] = useState(false);
   const [url, setUrl] = useState("");
@@ -44,8 +52,11 @@ export default function RoomPage() {
   }, [encoded]);
   const reloadView = useCallback(async () => {
     const requestId=++queueRequest.current;
-    const view=await api<RoomView>("/rooms/"+encoded+"/view");
+    let view:RoomView;
+    try { view=await api<RoomView>("/rooms/"+encoded+"/view"); }
+    catch(e) { if(requestId===queueRequest.current && [403,404].includes((e as Error & {status?:number}).status??0)) { setRoom(null);setSnapshot(null);setNeedsInvite(true);setSettingsOpen(false);setError((e as Error).message); } else throw e; return; }
     if(requestId!==queueRequest.current)return;
+    setRoom(view.room);setCanConfigure(view.canConfigure);
     setSnapshot({...view,receivedAt:Date.now()});
     setMessages(view.messages);
     setListeners(view.listeners);
@@ -58,7 +69,8 @@ export default function RoomPage() {
       setProfile(session.profile);
       const data = await api<{ room: Room; view: RoomView }>("/rooms/" + encoded + "/join", "POST", { inviteKey: inviteKey || null });
       queueRequest.current++;
-      setRoom(data.room); setNeedsInvite(false);
+      setRoom(data.room); setCanConfigure(data.view.canConfigure); setNeedsInvite(false);
+      if (window.location.hash.startsWith("#invite=")) window.history.replaceState(null,"",window.location.pathname+window.location.search);
       setSnapshot({...data.view,receivedAt:Date.now()});
       setMessages(data.view.messages);setListeners(data.view.listeners);
     } catch (e) {
@@ -67,7 +79,7 @@ export default function RoomPage() {
     } finally { setBusy(false); }
   }, [encoded]);
 
-  useEffect(() => { void join(); }, [join]);
+  useEffect(() => { const key=window.location.hash.startsWith("#invite=") ? decodeURIComponent(window.location.hash.slice(8)) : undefined; void join(key); }, [join]);
   useEffect(() => { const timer = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => { if (chatScroll.current) chatScroll.current.scrollTop = chatScroll.current.scrollHeight; }, [messages]);
   useEffect(() => {
@@ -76,6 +88,45 @@ export default function RoomPage() {
     if (addOpen && !dialog.open) dialog.showModal();
     if (!addOpen && dialog.open) dialog.close();
   }, [addOpen]);
+  useEffect(() => {
+    const dialog=settingsDialog.current;
+    if(!dialog)return;
+    if(settingsOpen&&!dialog.open)dialog.showModal();
+    if(!settingsOpen&&dialog.open)dialog.close();
+  },[settingsOpen]);
+
+  async function openSettings() {
+    if(!room)return;
+    setSettings({name:room.name,description:room.description,visibility:room.visibility,allow_add:!!room.allow_add,allow_manage:!!room.allow_manage,allow_control:!!room.allow_control});
+    setSettingsError("");setInviteLink("");setSettingsOpen(true);
+    try { setMembers(await api<RoomMembers>("/rooms/"+encoded+"/members")); }
+    catch(e) { setSettingsError((e as Error).message); }
+  }
+  async function saveSettings(event:React.FormEvent) {
+    event.preventDefault();setSettingsBusy(true);setSettingsError("");
+    try { await api("/rooms/"+encoded+"/settings","PATCH",settings); await reloadView(); }
+    catch(e) { setSettingsError((e as Error).message); }
+    finally { setSettingsBusy(false); }
+  }
+  async function memberAction(userId:string,action:"kick"|"ban"|"unban"|"role",role?:"ADMIN"|"DJ"|"MEMBER") {
+    setSettingsBusy(true);setSettingsError("");
+    try {
+      await api("/rooms/"+encoded+"/members",action==="role"?"PATCH":"POST",action==="role"?{userId,role}:{userId,action});
+      setMembers(await api<RoomMembers>("/rooms/"+encoded+"/members"));
+      await reloadView();
+    } catch(e) { setSettingsError((e as Error).message); }
+    finally { setSettingsBusy(false); }
+  }
+  async function createInvite() {
+    setSettingsBusy(true);setSettingsError("");
+    try {
+      const {inviteKey}=await api<{inviteKey:string}>("/rooms/"+encoded+"/invite","POST");
+      const link=window.location.origin+roomPath(slug)+"#invite="+encodeURIComponent(inviteKey);
+      setInviteLink(link);
+      await navigator.clipboard.writeText(link);
+    } catch(e) { setSettingsError((e as Error).message); }
+    finally { setSettingsBusy(false); }
+  }
 
   useEffect(() => {
     if (!room) return;
@@ -216,7 +267,8 @@ export default function RoomPage() {
           <h1>{room.name} <span>✳</span></h1><p>Tempat lagu enak dan cerita kecil bertemu.</p></div>
         <div className={styles.headerActions}>
           <span className={styles.listeningBadge}><Headphones size={15} /> Sedang mendengarkan bersama</span>
-          <button className={styles.share} onClick={() => { void navigator.clipboard.writeText(window.location.origin + roomPath(room.slug)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => setError("Gagal menyalin tautan")); }}><Copy size={15} /> {copied ? "Tersalin" : "Bagikan room"}</button>
+          {canConfigure && <button className={styles.share} onClick={() => void openSettings()}><Settings2 size={15}/> Pengaturan</button>}
+          {(room.visibility==="public" || canConfigure) && <button className={styles.share} onClick={() => { if(room.visibility==="private") { void openSettings(); return; } void navigator.clipboard.writeText(window.location.origin + roomPath(room.slug)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }).catch(() => setError("Gagal menyalin tautan")); }}><Copy size={15} /> {copied ? "Tersalin" : "Bagikan room"}</button>}
         </div>
       </header>
       <div className={styles.studioGrid}>
@@ -295,6 +347,38 @@ export default function RoomPage() {
             <p className={styles.note}>Lagu dari Spotify dan sumber lain membutuhkan padanan YouTube yang kamu pilih.</p>
             <div className={styles.dialogActions}><button type="button" className={styles.cancelButton} onClick={() => setAddOpen(false)}>Batal</button><button type="submit" className={styles.submitButton} disabled={busy || !snapshot?.canAdd}><Plus size={16} /> {busy ? "Menambahkan…" : "Tambah ke antrean"}</button></div>
           </form>
+        </div>
+      </dialog>
+      <dialog ref={settingsDialog} className={`${styles.addDialog} ${styles.settingsDialog}`} aria-labelledby="room-settings-title" onClose={() => setSettingsOpen(false)} onClick={event => { if(event.target===event.currentTarget)setSettingsOpen(false); }}>
+        <div className={styles.dialogContent}>
+          <div className={styles.dialogHeader}><div><span className={styles.eyebrow}>SYNORA / ROOM</span><h2 id="room-settings-title">Pengaturan room</h2></div><button type="button" className={styles.dialogClose} aria-label="Tutup pengaturan" onClick={() => setSettingsOpen(false)}><X size={20}/></button></div>
+          {settingsError && <p role="alert" className={styles.error}>{settingsError}</p>}
+          <form className={styles.settingsForm} onSubmit={saveSettings}>
+            <label>Nama room<input value={settings.name} maxLength={80} required onChange={e=>setSettings({...settings,name:e.target.value})}/></label>
+            <label>Deskripsi<textarea value={settings.description} maxLength={500} onChange={e=>setSettings({...settings,description:e.target.value})}/></label>
+            <label>Visibilitas<select value={settings.visibility} onChange={e=>setSettings({...settings,visibility:e.target.value as "public"|"private"})}><option value="public">Publik</option><option value="private">Privat</option></select></label>
+            <fieldset className={styles.permissionFields}><legend>Izin anggota</legend>
+              <label><input type="checkbox" checked={settings.allow_add} onChange={e=>setSettings({...settings,allow_add:e.target.checked})}/> Tambah lagu</label>
+              <label><input type="checkbox" checked={settings.allow_manage} onChange={e=>setSettings({...settings,allow_manage:e.target.checked})}/> Atur antrean</label>
+              <label><input type="checkbox" checked={settings.allow_control} onChange={e=>setSettings({...settings,allow_control:e.target.checked})}/> Kontrol pemutaran</label>
+            </fieldset>
+            <button className={styles.submitButton} disabled={settingsBusy}>Simpan pengaturan</button>
+          </form>
+          <section className={styles.settingsSection}><h3>Undangan privat</h3><p className={styles.note}>Buat tautan baru untuk mengundang teman. Tautan lama akan berhenti berlaku untuk tamu baru.</p>
+            <button className={styles.cancelButton} type="button" disabled={settingsBusy} onClick={() => void createInvite()}><Copy size={15}/> Buat dan salin tautan</button>
+            {inviteLink && <div className={styles.inviteBox}><input aria-label="Tautan undangan" readOnly value={inviteLink} onFocus={e=>e.target.select()}/><button type="button" onClick={() => void navigator.clipboard.writeText(inviteLink)}>Salin</button></div>}
+          </section>
+          <section className={styles.settingsSection}><h3>Anggota</h3>{!members && <p className={styles.note}>Memuat anggota…</p>}
+            {members?.members.map(person=><div className={styles.memberRow} key={person.user_id}><div><strong>{person.display_name}</strong><small>{person.user_id===members.ownerId?"Host":person.role}</small></div>
+              {person.user_id!==members.ownerId && person.user_id!==profile?.id && <div className={styles.memberActions}>
+                <select aria-label={`Peran ${person.display_name}`} disabled={settingsBusy || (!room || room.owner_id!==profile?.id) && person.role==="ADMIN"} value={person.role} onChange={e=>void memberAction(person.user_id,"role",e.target.value as "ADMIN"|"DJ"|"MEMBER")}>
+                  <option value="MEMBER">Anggota</option><option value="DJ">DJ</option>{room.owner_id===profile?.id && <option value="ADMIN">Admin</option>}
+                </select>
+                <button type="button" disabled={settingsBusy || (person.role==="ADMIN" && room.owner_id!==profile?.id)} onClick={()=>void memberAction(person.user_id,"kick")}>Keluarkan</button>
+                <button type="button" disabled={settingsBusy || (person.role==="ADMIN" && room.owner_id!==profile?.id)} onClick={()=>void memberAction(person.user_id,"ban")}>Blokir</button>
+              </div>}</div>)}
+            {!!members?.restrictions.length && <><h4>Dibatasi</h4>{members.restrictions.map(person=><div className={styles.memberRow} key={person.user_id}><div><strong>{person.display_name}</strong><small>{person.action==="ban"?"Diblokir":"Dikeluarkan sementara"}</small></div><button type="button" disabled={settingsBusy} onClick={()=>void memberAction(person.user_id,"unban")}>Pulihkan akses</button></div>)}</>}
+          </section>
         </div>
       </dialog>
     </>}

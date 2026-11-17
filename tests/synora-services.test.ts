@@ -7,6 +7,7 @@ import { issueSecret } from "../synora/core/identity";
 import { addQueueItem, parseQueueRequest, queueSnapshot, removeQueueItem, reorderQueue } from "../synora/core/queue-service";
 import { controlPlayback, playOrder } from "../synora/core/playback-service";
 import { listRoomMessages, roomListeners, roomView, sendRoomMessage, updateRoomPresence } from "../synora/core/room-social-service";
+import { changeMemberRole, listRoomMembers, moderateRoomMember, rotateRoomInvite, updateRoomSettings } from "../synora/core/room-management-service";
 import type { SqlExecutor, SynoraStore, SqlValue } from "../synora/core/store";
 
 let db:DatabaseSync;
@@ -27,6 +28,45 @@ beforeEach(()=>{
 afterEach(()=>db.close());
 
 describe("SYNORA transactions (real SQLite, not Turso integration)",()=>{
+  it("updates room permissions and enforces owner, admin, and member boundaries",async()=>{
+    const owner=await bootstrapIdentity(store,null),admin=await bootstrapIdentity(store,null),guest=await bootstrapIdentity(store,null);
+    const created=await createRoom(store,owner.cookie,{name:"Controls"});
+    const slug=created.room.slug;
+    await joinRoom(store,admin.cookie,slug,null);
+    await joinRoom(store,guest.cookie,slug,null);
+    await expect(updateRoomSettings(store,guest.cookie,slug,{allow_add:false})).rejects.toMatchObject({status:403});
+    await updateRoomSettings(store,owner.cookie,slug,{name:"Controls 2",allow_add:false,allow_manage:false,allow_control:false});
+    const view=await roomView(store,guest.cookie,slug);
+    expect(view).toMatchObject({room:{name:"Controls 2",allow_add:0},canAdd:false,canManage:false,canControl:false,canConfigure:false});
+    await changeMemberRole(store,owner.cookie,slug,{userId:admin.profile.id,role:"ADMIN"});
+    expect((await listRoomMembers(store,admin.cookie,slug)).members).toHaveLength(3);
+    await updateRoomSettings(store,admin.cookie,slug,{allow_add:true});
+    await expect(changeMemberRole(store,admin.cookie,slug,{userId:guest.profile.id,role:"ADMIN"})).rejects.toMatchObject({status:403});
+    await expect(moderateRoomMember(store,admin.cookie,slug,{userId:owner.profile.id,action:"ban"})).rejects.toMatchObject({status:403});
+    await changeMemberRole(store,admin.cookie,slug,{userId:guest.profile.id,role:"DJ"});
+    expect((await roomView(store,guest.cookie,slug)).canManage).toBe(true);
+    await expect(updateRoomSettings(store,owner.cookie,slug,{allow_add:"yes"})).rejects.toMatchObject({status:400});
+  });
+  it("revokes private invites and denies kicked or banned members until restored",async()=>{
+    const owner=await bootstrapIdentity(store,null),guest=await bootstrapIdentity(store,null),late=await bootstrapIdentity(store,null);
+    const created=await createRoom(store,owner.cookie,{name:"Private Club",visibility:"private"});
+    const slug=created.room.slug;
+    await joinRoom(store,guest.cookie,slug,created.inviteKey);
+    const rotated=await rotateRoomInvite(store,owner.cookie,slug);
+    expect(rotated.inviteKey).not.toBe(created.inviteKey);
+    await expect(joinRoom(store,late.cookie,slug,created.inviteKey)).rejects.toMatchObject({status:404});
+    await joinRoom(store,late.cookie,slug,rotated.inviteKey);
+    await expect(rotateRoomInvite(store,guest.cookie,slug)).rejects.toMatchObject({status:403});
+    const now=Date.now();
+    await moderateRoomMember(store,owner.cookie,slug,{userId:guest.profile.id,action:"kick"},now);
+    await expect(roomView(store,guest.cookie,slug,now+1)).rejects.toMatchObject({status:404});
+    await expect(joinRoom(store,guest.cookie,slug,rotated.inviteKey,now+1)).rejects.toMatchObject({status:403});
+    await moderateRoomMember(store,owner.cookie,slug,{userId:guest.profile.id,action:"unban"},now+2);
+    await joinRoom(store,guest.cookie,slug,rotated.inviteKey,now+3);
+    await moderateRoomMember(store,owner.cookie,slug,{userId:guest.profile.id,action:"ban"},now+4);
+    await expect(roomView(store,guest.cookie,slug,now+5)).rejects.toMatchObject({status:404});
+    expect((await listRoomMembers(store,owner.cookie,slug,now+5)).restrictions).toMatchObject([{user_id:guest.profile.id,action:"ban"}]);
+  });
   it("preserves anonymous identity and renamed nickname across visits",async()=>{
     const a=await bootstrapIdentity(store,null);
     expect(a.created).toBe(true);

@@ -17,8 +17,9 @@ export async function roomView(db: SynoraStore, token: unknown, slug: string, no
     db.query<MessageRow>("SELECT m.id,m.user_id,p.display_name,m.body,m.created_at FROM room_messages m JOIN profiles p ON p.id=m.user_id WHERE m.room_id=? ORDER BY m.created_at DESC,m.id DESC LIMIT 50",[room.id]),
     db.query<Listener>("SELECT p.id,p.display_name,CASE WHEN p.id=? THEN 1 ELSE 0 END AS is_owner,MAX(l.last_seen) AS last_seen FROM room_listener_leases l JOIN profiles p ON p.id=l.user_id WHERE l.room_id=? AND l.last_seen>=? GROUP BY p.id,p.display_name ORDER BY is_owner DESC,last_seen DESC LIMIT 100",[room.owner_id,room.id,now-PRESENCE_TTL_MS]),
   ]);
-  return {items,state:states[0]??null,messages:chat.reverse(),listeners,now,
-    canControl:permissions.control,canAdd:permissions.add,canManage:permissions.manage};
+  return {room,items,state:states[0]??null,messages:chat.reverse(),listeners,now,
+    canControl:permissions.control,canAdd:permissions.add,canManage:permissions.manage,
+    canConfigure:permissions.configure,canModerate:permissions.moderate,isOwner:permissions.owner};
 }
 
 async function notify(tx: SqlExecutor, roomId: string, now: number) {

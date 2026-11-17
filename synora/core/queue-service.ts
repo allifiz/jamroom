@@ -5,11 +5,11 @@ import { authenticate, ServiceError } from "./identity-service";
 import { parseMusicSource, playbackCandidate, type MusicPlayback, type MusicSource } from "./music";
 import type { SqlExecutor, SynoraStore } from "./store";
 
-type Room = { id: string; owner_id: string; visibility: "public" | "private"; allow_add: number; allow_manage: number; allow_control: number };
+type Room = { id: string; owner_id: string; slug:string; name:string; description:string; cover:string; visibility: "public" | "private"; allow_add: number; allow_manage: number; allow_control: number };
 type Member = { role: "ADMIN" | "DJ" | "MEMBER"; can_manage: number; can_control: number };
 type AccessRow = {
   user_id:string; display_name:string; avatar_seed:string; avatar_url:string|null;
-  room_id:string; owner_id:string; visibility:"public"|"private";
+  room_id:string; owner_id:string; slug:string; name:string; description:string; cover:string; visibility:"public"|"private";
   allow_add:number; allow_manage:number; allow_control:number;
   role:Member["role"]|null; member_can_manage:number|null; member_can_control:number|null;
   restriction_room_id:string|null; expires_at:number|null;
@@ -24,7 +24,7 @@ export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, 
   if (!validSecret(token)) throw new ServiceError(401,"Session required");
   const [row]=await tx.query<AccessRow>(
     `SELECT p.id AS user_id,p.display_name,p.avatar_seed,p.avatar_url,
-      r.id AS room_id,r.owner_id,r.visibility,r.allow_add,r.allow_manage,r.allow_control,
+      r.id AS room_id,r.owner_id,r.slug,r.name,r.description,r.cover,r.visibility,r.allow_add,r.allow_manage,r.allow_control,
       m.role,m.can_manage AS member_can_manage,m.can_control AS member_can_control,
       b.room_id AS restriction_room_id,b.expires_at
      FROM sessions s JOIN profiles p ON p.id=s.user_id
@@ -38,7 +38,7 @@ export async function roomAccess(tx: SqlExecutor, slug: string, token: unknown, 
     throw new ServiceError(404,"Room unavailable");
   }
   const user={id:row.user_id,display_name:row.display_name,avatar_seed:row.avatar_seed,avatar_url:row.avatar_url};
-  const room:Room={id:row.room_id,owner_id:row.owner_id,visibility:row.visibility,
+  const room:Room={id:row.room_id,owner_id:row.owner_id,slug:row.slug,name:row.name,description:row.description,cover:row.cover,visibility:row.visibility,
     allow_add:row.allow_add,allow_manage:row.allow_manage,allow_control:row.allow_control};
   const permissions = roomPermissions({ ownerId:room.owner_id, visibility:room.visibility, allowAdd:!!room.allow_add,
     allowManage:!!room.allow_manage, allowControl:!!room.allow_control },user.id,
