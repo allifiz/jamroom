@@ -1,4 +1,4 @@
-const ORIGIN="https://jamroom-git-v2-syren1.vercel.app";
+const ORIGIN="https://jamroom-nine.vercel.app";
 const $=id=>document.getElementById(id);
 const status=(text,kind="")=>{ $("status").textContent=text;$("status").className=kind; };
 let current={};
