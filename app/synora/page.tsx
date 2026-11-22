@@ -50,7 +50,7 @@ export default function SynoraHome() {
   }
 
   return <main className={styles.main}>
-    <div className={styles.hero}><span className={styles.badge}>SYNORA · V2 DEVELOPMENT PREVIEW</span>
+    <div className={styles.hero}><span className={styles.badge}>SYNORA · RUANG MUSIK BERSAMA</span>
       <h1>Music feels better together.</h1><p>Ruang musik tanpa pendaftaran. Masuk, buat ruang, dan kumpulkan lagu bersama.</p>
       {profile && <span className={styles.identity}>Halo, {profile.display_name}</span>}
     </div>
